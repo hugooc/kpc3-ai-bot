@@ -1,0 +1,6 @@
+{
+  "anthropic_api_key": "sk-ant-your-api-key-here",
+  "tnc_host": "192.168.1.100",
+  "tnc_port": 8765,
+  "mycall": "N0CALL"
+}

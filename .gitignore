@@ -1,0 +1,29 @@
+# Private folder — secrets, keys, logs, drafts. Never committed.
+private/
+
+# Secrets and credentials (belt-and-suspenders — in case they're outside private/)
+config.json
+*.key
+*_key
+*_key.pub
+kpc3_ssh_key*
+.env
+.env.*
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~

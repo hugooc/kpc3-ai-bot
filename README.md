@@ -16,6 +16,20 @@ All three talk to the TNC over a persistent TCP serial bridge running on a Windo
 
 ![W6OAK AI Packet Station, Full System View](docs/architecture.png)
 
+```
+Claude / Bot (TCP) ──── network ──── Windows box on your LAN
+                                         │
+                                  kpc3_bridge.ps1 (port 8765)
+                                         │
+                                  COM port (USB serial)
+                                         │
+                                     KPC-3 Plus TNC
+                                         │
+                                   2m transceiver
+                                         │
+                                      Antenna
+```
+
 The station is a Kantronics KPC-3 Plus TNC driven by a small Python bot running on a Windows 10 host. A PowerShell TCP bridge (`kpc3_bridge.ps1`) holds the serial port open on COM17 and exposes it on TCP port 8765, so multiple clients can share the TNC without fighting over the COM port. The bridge listens on the LAN only and is firewalled off the public internet.
 
 On top of that bridge, three things happen:

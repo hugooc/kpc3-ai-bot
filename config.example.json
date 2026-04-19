@@ -2,5 +2,12 @@
   "anthropic_api_key": "sk-ant-your-api-key-here",
   "tnc_host": "192.168.1.100",
   "tnc_port": 8765,
-  "mycall": "N0CALL"
+  "mycall": "N0CALL",
+
+  "beacon_rotation_enabled": false,
+  "beacon_rotation_minutes": 20,
+  "beacon_api_ratio": 6,
+  "beacon_prefix": "W6OAK AI bot CM87. ",
+  "beacon_max_len": 128,
+  "beacon_pool_file": "BTEXT_POOL.md"
 }

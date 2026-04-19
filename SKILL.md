@@ -3,7 +3,7 @@ name: kpc3-packet-station
 description: >
   Operate a Kantronics KPC-3 Plus TNC (Terminal Node Controller) via a TCP serial bridge
   running on a Windows 10 machine. The bridge holds COM11 open permanently and accepts TCP
-  connections on port 8765. Claude connects directly from its bash tool to YOUR-WINDOWS-IP:8765
+  connections on port 8765. Claude connects directly from its bash tool to 192.168.1.100:8765
   to send commands; PuTTY connects to localhost:8765 on the Windows machine for live monitoring.
   Use this skill whenever the user wants to interact with their amateur radio packet station —
   sending commands, monitoring traffic, connecting to nodes or BBS systems, reading/sending
@@ -24,7 +24,7 @@ No Remote Desktop, no PuTTY GUI interaction, no clipboard hacks needed.
 ```
 Claude (bash/TCP) ──────────────────────────────────────────────────────┐
                                                                          ↓
-Mac ──── network ──── Windows 10 (YOUR-WINDOWS-IP) ──── kpc3_bridge.ps1 ──── COM11 ──── KPC-3+ ──── Radio ──── Antenna
+Mac ──── network ──── Windows 10 (192.168.1.100) ──── kpc3_bridge.ps1 ──── COM11 ──── KPC-3+ ──── Radio ──── Antenna
                                                          ↑
                                                PuTTY (localhost:8765)
                                                (live monitoring for user)
@@ -42,7 +42,7 @@ Mac ──── network ──── Windows 10 (YOUR-WINDOWS-IP) ──── 
 | Digipeater | ON (`/R`) |
 | TNC | Kantronics KPC-3+ |
 | COM Port | COM11 (USB Serial on Windows) |
-| Windows machine | YOUR-WINDOWS-IP (Lenovo ThinkPad, user: your-username) |
+| Windows machine | 192.168.1.100 (Windows PC, user: YOURUSER) |
 | Bridge TCP port | **8765** |
 
 ---
@@ -258,7 +258,7 @@ def kpc3_check():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(3)
-        s.connect(('YOUR-WINDOWS-IP', 8765))
+        s.connect(('192.168.1.100', 8765))
         s.close()
         return True
     except:
@@ -276,7 +276,7 @@ def restart_bridge():
     key = os.path.expanduser('~/.ssh/kpc3_key')
     if not os.path.exists(key):
         # Prefer the organized layout; fall back to the legacy flat layout
-        project_root = '/Users/your-username/Desktop/Kantronics KPC3+ Claude Skill'
+        project_root = '/Users/YOU/Desktop/Kantronics KPC3+ Claude Skill'
         for src in (os.path.join(project_root, 'private', 'kpc3_ssh_key'),
                     os.path.join(project_root, 'kpc3_ssh_key')):
             if os.path.exists(src):
@@ -286,7 +286,7 @@ def restart_bridge():
                 break
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect('YOUR-WINDOWS-IP', username='your-username', key_filename=key, timeout=5)
+    ssh.connect('192.168.1.100', username='YOURUSER', key_filename=key, timeout=5)
     stdin, stdout, stderr = ssh.exec_command(
         'powershell -Command "Start-ScheduledTask -TaskName KPC3Bridge"'
     )
@@ -318,7 +318,7 @@ Only proceed with the session's actual work after `STATUS` confirms
 ```python
 import socket, time
 
-def kpc3_ensure_clean_state(host='YOUR-WINDOWS-IP', port=8765):
+def kpc3_ensure_clean_state(host='192.168.1.100', port=8765):
     """
     Force the TNC back to a known-good cmd: state before doing any real work.
     Sends B (exit any sub-mode), DISCONNE (clear TNC-level stream), then
@@ -384,7 +384,7 @@ kpc3_ensure_clean_state()
 ```python
 import socket, time
 
-KPC3_HOST = 'YOUR-WINDOWS-IP'
+KPC3_HOST = '192.168.1.100'
 KPC3_PORT = 8765
 
 class KPC3Timeout(Exception):
@@ -655,7 +655,7 @@ def kpc3_safe_disconnect(max_byes=4, budget=20):
 
 ```python
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect(('YOUR-WINDOWS-IP', 8765))
+s.connect(('192.168.1.100', 8765))
 s.settimeout(30)
 try:
     while True:
@@ -1356,6 +1356,63 @@ Naming convention on 145.05: K-Net nodes use a location name (e.g. `BUTANO`), KA
 
 ---
 
+## MONTC - Multi-port Frequency Hop Node (unique to W6OAK location)
+
+**MONTC** (K2YE, Jim Beno) is a multi-port NET/ROM node located ~900 feet above sea level near Montclair in the Oakland Hills. From W6OAK it lets us hop frequencies without retuning the radio: connect once on our operating frequency, then reach stations on five different bands through MONTC's internal routing.
+
+### Ports and frequencies
+
+| Port | Frequency |
+|---|---|
+| ax0 | 145.050 MHz |
+| ax1 | 144.910 MHz |
+| ax2 | 145.630 MHz |
+| ax3 | 145.090 MHz |
+| ax4 | 223.600 MHz |
+
+### Two ways to reach stations through MONTC
+
+**1. Connect to MONTC first, then route onward (NET/ROM or AX.25 links on its other ports):**
+
+```
+C MONTC                # connect to the node first
+NODES                  # see all routes the node knows
+NODES *                # show which port each destination lives on
+C <call>               # NET/ROM virtual circuit (node picks the port)
+C <port> <call>        # AX.25 direct link on a specific port (e.g. C ax2 W6XYZ)
+INFO                   # list the digipeater aliases
+```
+
+**2. Use MONTC's digipeater aliases in VIA (no prior connect needed):**
+
+Put one of these callsigns in your `VIA` path to reach stations on the listed OUTPUT frequency without first connecting to MONTC:
+
+| Digi alias | Output frequency |
+|---|---|
+| `K2YE-6` | 145.050 MHz |
+| `K2YE-7` | 144.910 MHz |
+| `K2YE-8` | 145.630 MHz |
+| `K2YE-9` | 145.090 MHz |
+| `K2YE-4` | 223.600 MHz |
+
+Example:
+```
+C N6XYZ VIA K2YE-8     # reach N6XYZ on 145.630 through the Montclair digi
+```
+
+### About the MONTC station
+
+- **Sysop:** Jim Beno, K2YE (k2ye@arrl.net)
+- **Location:** ~900 ft ASL, Oakland Hills near Montclair
+- **Antennas:** (2) Arrow OSJ-146/440 J-Poles, (1) Arrow OSJ-220 J-Pole
+- **Radios:** Kenwood TM-D700, Kenwood TM-D710A, BridgeComm BCM-220
+- **TNCs:** (3) SignaLink USB soundcards with Direwolf + (2) internal radio TNCs
+- **Computer:** Raspberry Pi 4 (8GB Model B, 1.5 GHz 64-bit quad-core)
+- **Services:** NET/ROM Node (K2YE-5), Winlink RMS (K2YE-10)
+- **Power:** 40Ah Bioenno LiFePO4 battery backup with solar recharge
+
+---
+
 ## Unproto Operation (Unconnected Communication)
 
 **Unproto** means sending an AX.25 UI (unnumbered information) frame that is not part of a connected session. Anyone within range who is monitoring sees it. This is how the **Sunday Night Packet Net** runs, and it's the right tool any time you want a group QSO rather than a point-to-point chat.
@@ -1489,7 +1546,7 @@ Type `STATUS`, `MHEARD`, `C WOODY`, whatever you want. ENTER sends. Ctrl-C quits
 Already on your Mac. Works for read-only monitoring but not ideal for sending commands because macOS `nc` sends `\r\n` by default, which the KPC-3+ chokes on with `EH?`. Fine for listening:
 
 ```bash
-nc YOUR-WINDOWS-IP 8765
+nc 192.168.1.100 8765
 ```
 
 Press Ctrl-C to exit.
@@ -1510,7 +1567,7 @@ Only needed if a tool must open COM11 directly (e.g. a Kantronics firmware updat
 
 The bridge (`kpc3_bridge.ps1`) runs as a Windows Task Scheduler job named **KPC3Bridge** and starts automatically at login. It holds COM11 open exclusively for as long as it's running, and fans out to multiple TCP clients on port 8765.
 
-**Log file:** `C:\Users\your-windows-username\kpc3_bridge.log`
+**Log file:** `C:\Users\hugoo\kpc3_bridge.log`
 
 ### Starting and stopping from the Windows box
 
@@ -1535,13 +1592,13 @@ The same commands, wrapped in SSH. Uses the repo's SSH key.
 KEY="~/Desktop/Kantronics KPC3+ Claude Skill/private/kpc3_ssh_key"
 
 # Stop
-ssh -i "$KEY" your-username@YOUR-WINDOWS-IP 'powershell -Command "Stop-ScheduledTask -TaskName KPC3Bridge"'
+ssh -i "$KEY" you@192.168.1.100 'powershell -Command "Stop-ScheduledTask -TaskName KPC3Bridge"'
 
 # Start
-ssh -i "$KEY" your-username@YOUR-WINDOWS-IP 'powershell -Command "Start-ScheduledTask -TaskName KPC3Bridge"'
+ssh -i "$KEY" you@192.168.1.100 'powershell -Command "Start-ScheduledTask -TaskName KPC3Bridge"'
 
 # Status
-ssh -i "$KEY" your-username@YOUR-WINDOWS-IP 'powershell -Command "Get-ScheduledTask -TaskName KPC3Bridge | Select State"'
+ssh -i "$KEY" you@192.168.1.100 'powershell -Command "Get-ScheduledTask -TaskName KPC3Bridge | Select State"'
 ```
 
 If the SSH key isn't yet at `~/.ssh/kpc3_key`, the skill's session-startup helper (`restart_bridge()`) copies it into place with the right permissions. See the top of this skill for that helper.

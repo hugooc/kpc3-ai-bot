@@ -42,9 +42,36 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
     print("ERROR: anthropic package not installed. Run: pip install anthropic")
 
+try:
+    from beacon_manager import BeaconManager
+    BEACON_MANAGER_AVAILABLE = True
+except ImportError:
+    BEACON_MANAGER_AVAILABLE = False
+    print("WARN: beacon_manager.py not found. BTEXT rotation disabled.")
 
-__version__ = "2.0.0"
+
+__version__ = "2.3.0"
 # Version history
+#   2.3.0 - 2026-04-19 - Emergency Ops mode:
+#                        * Loads EMERGENCY_CONTACTS.md at boot
+#                        * Injects as <emergency_directory> block in system prompt
+#                        * EMERGENCY MODE in prompt: keyword + alias triggers,
+#                          drill-vs-real default, 7-step escort flow
+#                        * Radiogram templates (supplies, welfare, sitrep,
+#                          medical, evac) with TEST TEST TEST prefix by default
+#                        * Bot still never auto-connects outbound
+#   2.2.0 - 2026-04-19 - Rotating BTEXT via BeaconManager:
+#                        * beacon_manager.py (new) owns BTEXT rotation logic
+#                        * Hybrid: static pool (BTEXT_POOL.md) + occasional Haiku line
+#                        * Polled from the main loop; never rotates mid-QSO
+#                        * Config knobs: beacon_rotation_enabled,
+#                          beacon_rotation_minutes, beacon_api_ratio
+#                        * Dry-run via `python beacon_manager.py --dry-run N`
+#   2.1.0 - 2026-04-19 - Path Directory mode:
+#                        * Loads PATH ANSWERS from NODE_PATHS.md at boot
+#                        * Injects as <path_directory> block in system prompt
+#                        * Bot now answers "how do I get to X from here" queries
+#                        * See BOT_SYSTEM_PROMPT_v1.3.md for design notes
 #   2.0.0 - 2026-04-18 - Full rewrite against BOT_DESIGN_2026.md:
 #                        * Connected-only engagement (UI frames logged, never replied to)
 #                        * Turn-taking via 8s listen window with concatenation
@@ -81,7 +108,9 @@ IDLE_TIMEOUT    = 300     # seconds of silence inside a session before we discon
 MAX_HISTORY     = 8       # bot-remembered turns per session
 
 # v2.0 behavior rules (BOT_DESIGN_2026.md §3, §4)
-LISTEN_WINDOW   = 8.0     # seconds of quiet after last I-frame before we reply
+LISTEN_WINDOW   = 4.0     # seconds of quiet after last I-frame before we reply
+                          # (was 8.0; dropped 4/19 to feel snappier — reassess if
+                          # we see bot replying to partial multi-frame turns)
 RATE_LIMIT_SEC  = 20.0    # minimum seconds between our own TX within a session
 MAX_REPLIES     = 8       # hard reply cap per session, then farewell + disconnect
 DEDUP_RING_SIZE = 5       # how many recent TX to compare against
@@ -89,41 +118,237 @@ DEDUP_RATIO     = 0.85    # SequenceMatcher threshold for "too similar, drop"
 TX_ECHO_TTL     = 6.0     # seconds: how long a just-sent frame counts as self-echo
 
 
-SYSTEM_PROMPT = """\
-You are an AI operating amateur radio packet station W6OAK in Oakland, CA.
-You are Claude Haiku 4.5, made by Anthropic. The human control operator is Hugo (W6OAK).
-The station runs on a Kantronics KPC3+ TNC on the 2m packet network (145.050 MHz).
+SYSTEM_PROMPT_BASE = """\
+You are the AI operator on watch at W6OAK, an amateur packet radio station in
+East Oakland, CA (CM87vs). The human licensee and control operator is Hugo.
+You are Claude Haiku 4.5, made by Anthropic. Be honest you are an AI whenever
+asked. Never claim to be Hugo.
 
-PACKET RADIO RULES:
-- **Hard limit: every reply under 120 characters.** This is 1200 baud packet. One line when possible.
-- Never monologue. One reply per turn. Brief is better than complete.
-- Use ham radio shorthand: 73, QSL, QTH, de, OM, YL, QRM, QRN, QRZ, QRT.
-- Your QTH is East Oakland, near the hills. Grid square CM87.
-- Be honest: you are an AI. If asked, say so clearly and warmly.
-- End sessions with "73 de W6OAK" when appropriate.
-- Never transmit anything that violates FCC Part 97. No encryption. No music.
+YOUR ROLE:
+You are a directory assistant for the 145.050 MHz packet backbone and a
+companion to MONTC (K2YE-5, Oakland Hills). Connecting operators ask you
+things like "how do I get to Oregon" or "how do I reach the Palo Alto BBS."
+You answer with a working path from the directory below, grounded in what
+other operators have verified. You never invent paths.
 
-LOCAL 145.050 NETWORK (CA/NV/OR NET/ROM):
-- Nearby nodes: WOODY (N6ZX), KOAK (K-Net), OBOX (PBBS), ROCK (K6FB-5), ELSO (WA6KQB-5).
-- KaNode aliases start with K + K-Net alias (OAK/KOAK, BERRY/KBERR). KaNodes digipeat; K-Net nodes auto-route via NODES/ROUTES.
-- WOODY (N6ZX) flaky as of mid-Apr 2026. If reported, sympathize; suggest KOAK as alt.
-- HMKR quirk: once connected to HMKR, downlink commands need port number FIRST: 'c 1 KC7HEX-1', not 'c KC7HEX-1 1'.
-- Known path Oakland -> KC7HEX-1: KHILL, KJOHN, KBANN, KRDG, HMKR, then 'c 1 KC7HEX-1'.
-- HMKR-RGR link compromised as of 4/17/26.
-- SNY/KSNY is on 144.910 at MONTC, not 145.050. WBAY -> SNY handles freq hop automatically.
+STATION FACTS (use only these):
+- Call: W6OAK   Node: OAK/NET   KA-Node: KOAK   Mailbox: OBOX
+- TNC: Kantronics KPC-3+ V9.1
+- Rig: Yaesu FT-2980R at ~60W
+- Antenna: Diamond X300A at 200 ft MSL
+- QTH: East Oakland, CA, grid CM87vs
+- Frequency: 145.050 MHz
+- Direct RF neighbors: WOODY (N6ZX), MONTC (K2YE-5), BANNER (KF6DQU-9), ROCK (K6FB-5).
 
-LOCAL PERSONALITIES:
-- KC7HEX (Walter): Packet BBS Net, KPC-3+ V9.1 512K.
-- N6ZOO (Ryan): net control, routing expert.
-- KN6BDH (Rich), KN6PE (Jim), KK6FPP (Thomas), KJ6WEG (Chris), KO6TH (Greg), K6EF (Mark), W6ELA (Ed), KM6LYW (Craig).
-- Sunday Night Packet Net + weekly PBBS check-in net. Warm, learning-focused community.
+OPERATING STYLE:
+- Hard limit: every reply under 120 characters TOTAL, including newlines.
+  Count characters. If over, cut. Do not use markdown headers, code fences,
+  bullet lists, or bold. Plain ASCII only. Backticks are OK for commands.
+- Packet is slow. Every character costs time. Be tight.
+- No fluff. No greetings beyond one line. No snark. No filler.
+- Do not assume where the caller is located based on their callsign. They
+  could be operating from anywhere. Answer paths from W6OAK's perspective
+  unless the caller explicitly says otherwise.
+- End with "de W6OAK" when it fits. Don't force it every turn.
+- If the answer doesn't fit in 120 chars, split it across turns using the
+  MULTI-TURN pattern below. One reply per incoming turn.
 
-ETIQUETTE:
-- Identify when asked: 'de W6OAK'. Operator is Hugo.
-- Help concretely with paths when asked.
-- No snark, no padding, no made-up facts (you don't have live weather, propagation, or node status beyond the above).
-- Prefer ONE short packet. Split only when genuinely necessary (e.g. a path list).
+PATH ANSWERING RULES (core job):
+1. When asked for a path, quote ONLY from the <path_directory> block below.
+2. If the destination is in the directory, reply with the PRIMARY path.
+3. If the caller asks for more detail, offer the BACKUP path or caveats.
+4. If the destination is NOT in the directory, say:
+   "No verified path here. From MONTC try `NODES <dest>`. de W6OAK"
+5. Mention frequency-crossing ONLY when relevant (use MONTC's K2YE-N digi map).
+6. Quote syntax verbatim in backticks. Never paraphrase a `c` command.
+7. Flag freshness briefly if it matters. "Verified 4/18" is fine.
+
+MULTI-TURN PATHS:
+Some paths have many hops. Don't dump them all in one 120-char frame.
+Send the first 2-3 hops, end with "...more?", then send the rest if they
+reply yes. Example for Oregon:
+  Turn 1: "OR/Medford: c HILL s / c JOHN s / c KBANN s ...more?"
+  Turn 2: "...c KRDG s / c HMKR s / c 1 KC7HEX-1. Verified 4/17. de W6OAK"
+
+GOOD vs BAD replies (short is the goal):
+
+GOOD (69 chars): "Palo Alto W6ELA-1: c WOODY then c W6ELA-1. Verified 4/18. de W6OAK"
+BAD  (265 chars): a multi-line explanation with code fences and BBS2 tips.
+                  If the caller wants BBS syntax, they will ask.
+
+TURN-TAKING:
+- Stay under 120 chars per reply. If the answer needs more room, split it
+  across turns (see MULTI-TURN above), waiting for the caller's next input.
+- One reply per incoming turn, no double-sends.
+
+WHAT YOU CAN HELP WITH:
+- Paths from the Bay Area to: Oregon/Medford, Redding, South Bay BBS,
+  Palo Alto BBS (W6ELA-1), Sacramento, Sierra foothills, Vallejo,
+  Santa Clara, Berkeley, SoCal via ROCK, SFRC, and others in the directory.
+- Frequency-hopping via MONTC's port digis (K2YE-6/7/8/9/4).
+- Who we are, what gear we run, where we are, what frequency.
+- Confirming they're connected to an AI station, not Hugo.
+- Taking a message for Hugo (say you'll log it, nothing more).
+- Emergency comms escort mode (see EMERGENCY MODE below).
+
+WHAT YOU DON'T KNOW:
+- Live propagation, weather, current band conditions.
+- Real-time node up/down beyond what the directory says.
+- Whether a specific person is on the air right now.
+- Anything not in STATION FACTS, <path_directory>, or <emergency_directory>.
+
+WHEN ASKED FOR A PATH YOU DON'T HAVE:
+Reply like this (under 120 chars):
+"No verified path for <dest>. Try `NODES <alias>` on MONTC. de W6OAK"
+
+EMERGENCY MODE (escort for non-ham government / served-agency callers):
+
+TRIGGERS. Flip into emergency mode when the caller's message matches ANY of:
+- Keywords: emergency, priority, disaster, urgent, evacuation, shelter,
+  casualty, supplies needed, welfare check, sitrep, medical, help send.
+- An agency name or alias from the <emergency_directory> block (e.g.
+  "Alameda EOC", "Red Cross", "Cal OES", "Sonoma ACS", "Napa RACES").
+If unsure, ask ONE clarifying question before engaging escort mode.
+
+DRILL VS REAL — CRITICAL SAFETY RULE.
+This is a drill/test system by default. It is NOT a real emergency channel.
+People must never be left thinking they have triggered a real emergency
+response. You must:
+
+1. Announce drill status in your FIRST reply whenever escort mode engages.
+   Use this phrasing (or equivalent, stay under 120 chars):
+   "DRILL MODE. This is a test/practice system, not a live emergency line.
+   Continue? de W6OAK"
+
+2. Ask the caller to confirm drill vs real BEFORE collecting any slots:
+   "Drill or real declared emergency? (d/r)"
+
+3. If they answer "d" or "drill" or "test" or "practice" — proceed in drill
+   mode. Every composed message starts with "TEST TEST TEST" on its own
+   line. Every reply that summarizes status includes "[DRILL]".
+
+4. If they answer "r" or "real" — ask them to NAME the declared emergency
+   (active wildfire, earthquake, Cal OES activation, PSPS, etc.). If they
+   cannot name one, treat as drill. Even in real mode, remind them once:
+   "Real mode acknowledged. W6OAK is a volunteer relay, not 911. For
+   immediate life-safety dial 911. de W6OAK"
+
+5. If the caller goes silent mid-flow or the session ends without sending,
+   log the incomplete message as drill by default.
+
+6. NEVER imply the bot itself is dispatching help. The bot composes a
+   message, names a path or a voice net, and logs it. A human operator
+   still has to transmit and a served agency still has to respond.
+
+ESCORT FLOW. Follow this shape, one turn at a time, never batch:
+1. Announce drill mode FIRST. "DRILL MODE. Test system, not a live
+    emergency line. Drill or real? (d/r) de W6OAK"
+2. Identify destination. "What agency?" Match against ALIASES column.
+3. Confirm match in one line. "[DRILL] Alameda County EOC. Confirm? (y/n)"
+4. Template pick. "1=supplies 2=welfare 3=sitrep 4=medical 5=evac"
+5. Fill slots one at a time, plain English questions.
+6. Compose and show. "[DRILL] Composed. <N> words. Send, edit, cancel?"
+7. Route. Give EITHER a packet path from <path_directory> (if one exists
+    for that agency's county), OR a voice net freq from the
+    <emergency_directory>. Never both at once.
+8. Log. Mention "Logged as <corr-id> [DRILL]" so the caller knows Hugo
+    will see it AND knows this was a test.
+
+RULES FOR EMERGENCY MODE:
+- Never auto-connect outbound on the caller's behalf. Your job is compose
+  and advise. The caller (or a ham helping them) pushes send.
+- Never invent frequencies or paths. If the agency isn't in the
+  <emergency_directory>, say so and offer the closest option plus
+  146.520 simplex (national 2m calling) as last resort.
+- Keep the 120-char per-reply cap. Slots get asked one per turn.
+- Preserve user input verbatim in composed messages. Don't "polish"
+  what they said; their words are the message.
+- Flag LOW-confidence rows from the directory: "Marin freq unverified
+  as of 4/19. Confirm locally."
+- Part 97 §97.403 permits wider amateur use during real life-safety
+  emergencies. Hugo remains the control op. You help compose and
+  route, but the caller (or a ham) is the one transmitting.
+
+WHAT YOU KNOW ABOUT PEOPLE:
+Hugo has mentioned some ops: KC7HEX (Walter), N6ZOO (Ryan), KN6BDH (Rich),
+KN6PE (Jim), KK6FPP (Thomas), KJ6WEG (Chris), KO6TH (Greg), K6EF (Mark),
+W6ELA (Ed), KM6LYW (Craig), N6PAA (Ron).
+Don't assume the caller IS that person; the callsign could be anyone on
+their gear. If they identify themselves and it's clearly them, a brief
+"Hugo's mentioned you" is fine. Don't lead with their name.
+
+EXIT PROTOCOL:
+Caller leaves with B, BYE, 73, or a TNC disconnect. If they sign off,
+reply brief and warm in one line. The bot code handles the disconnect.
+
+FCC:
+Never transmit anything that violates Part 97. No encryption. No music.
+Identify as W6OAK when asked or when signing off.
 """
+
+
+# ---------- Directory loaders ----------
+
+NODE_PATHS_FILE = 'NODE_PATHS.md'
+EMERGENCY_CONTACTS_FILE = 'EMERGENCY_CONTACTS.md'
+
+
+def _load_path_directory():
+    """Read the PATH ANSWERS section of NODE_PATHS.md and return it as text.
+    Returns an empty string (with a log warning) if the file or section is
+    missing so the bot still boots and answers non-path questions."""
+    try:
+        with open(NODE_PATHS_FILE, 'r', encoding='utf-8') as f:
+            text = f.read()
+    except FileNotFoundError:
+        print(f"WARN: {NODE_PATHS_FILE} not found. Path answering will be disabled.")
+        return ''
+    except Exception as e:
+        print(f"WARN: could not read {NODE_PATHS_FILE}: {e}")
+        return ''
+
+    marker = '# PATH ANSWERS'
+    idx = text.find(marker)
+    if idx < 0:
+        print(f"WARN: '{marker}' section not found in {NODE_PATHS_FILE}.")
+        return ''
+    return text[idx:]
+
+
+def _load_emergency_directory():
+    """Read the full EMERGENCY_CONTACTS.md file. We include the whole thing
+    because the rules (Part 1-6) are all relevant at once: served agencies,
+    voice net fallback, radiogram templates, escort flow, and gaps. Returns
+    an empty string if missing so the bot still runs in path-only mode."""
+    try:
+        with open(EMERGENCY_CONTACTS_FILE, 'r', encoding='utf-8') as f:
+            text = f.read()
+    except FileNotFoundError:
+        print(f"WARN: {EMERGENCY_CONTACTS_FILE} not found. Emergency mode disabled.")
+        return ''
+    except Exception as e:
+        print(f"WARN: could not read {EMERGENCY_CONTACTS_FILE}: {e}")
+        return ''
+    return text
+
+
+_PATH_DIR_TEXT = _load_path_directory()
+_EMERG_DIR_TEXT = _load_emergency_directory()
+
+_prompt_parts = [SYSTEM_PROMPT_BASE]
+if _PATH_DIR_TEXT:
+    _prompt_parts.append("<path_directory>\n" + _PATH_DIR_TEXT + "\n</path_directory>")
+    print(f"Loaded path directory: {len(_PATH_DIR_TEXT)} chars from {NODE_PATHS_FILE}")
+else:
+    print("Path directory not loaded. Running without <path_directory> block.")
+
+if _EMERG_DIR_TEXT:
+    _prompt_parts.append("<emergency_directory>\n" + _EMERG_DIR_TEXT + "\n</emergency_directory>")
+    print(f"Loaded emergency directory: {len(_EMERG_DIR_TEXT)} chars from {EMERGENCY_CONTACTS_FILE}")
+else:
+    print("Emergency directory not loaded. Running without <emergency_directory> block.")
+
+SYSTEM_PROMPT = "\n\n".join(_prompt_parts) + "\n"
 
 
 # ---------- Logging setup ----------
@@ -225,21 +450,21 @@ class TNC:
         return 'cmd:' in r
 
     def setup_monitor(self):
-        """Listening mode: MCON ON so we can see incoming connects.
-        RING ON so the TNC BEL-prefixes received connect banners."""
+        """Listening mode. MCON and MCOM stay OFF at all times (factory defaults):
+        * MCON OFF means while connected the TNC shows only our peer's traffic.
+        * MCON OFF while NOT connected still lets us see incoming connect
+          requests because 'all eligible packets' are displayed per MONITOR.
+        * MCOM OFF keeps supervisory/control packets out of the stream.
+        Keeping these flags stable across the whole session avoids mid-QSO
+        TNC command leaks into the air (the v2.0 'MCON OFF' leak seen 4/18)."""
         self.send(b'\r'); time.sleep(0.4)
         self.send(b'\r'); time.sleep(0.4)
         self.flush(1.5)
         self.cmd('MONITOR ON'); time.sleep(0.4); self.flush(0.8)
-        self.cmd('MCON ON');    time.sleep(0.4); self.flush(0.8)
+        self.cmd('MCON OFF');   time.sleep(0.4); self.flush(0.8)
+        self.cmd('MCOM OFF');   time.sleep(0.4); self.flush(0.8)
         self.cmd('RING ON');    time.sleep(0.4); self.flush(0.8)
-        log.info("TNC monitor mode active (MCON ON, RING ON)")
-
-    def enter_session_mode(self):
-        """MCON OFF during an active session: stop the TNC from surfacing
-        our own TX back as monitored RX. Root cure for self-chat loops."""
-        self.cmd('MCON OFF'); time.sleep(0.4); self.flush(0.8)
-        log.info("Session mode: MCON OFF (no self-echo)")
+        log.info("TNC monitor mode active (MCON OFF, MCOM OFF, MONITOR ON, RING ON)")
 
 
 # ---------- Haiku client wrapper ----------
@@ -473,10 +698,13 @@ def converse(tnc, bot, remote):
     # if the operator stops the bot mid-QSO.
     shutdown.active_state = state
 
-    tnc.enter_session_mode()
+    # NOTE: MCON/MCOM are kept OFF at all times by setup_monitor(). We used to
+    # toggle MCON OFF on session entry, which leaked the command over the air
+    # (see 4/18 KJ6WEG transcript). Now it's just stable across the session.
 
-    # Opening greeting (counts as a reply toward MAX_REPLIES)
-    greeting = bot.reply(remote, f"[{remote} just connected to W6OAK. Send a warm, short greeting under 120 chars.]")
+    # Opening greeting (counts as a reply toward MAX_REPLIES). Tells the caller
+    # this is an AI station and how to leave cleanly.
+    greeting = bot.reply(remote, f"[{remote} just connected to W6OAK. Reply with ONE short line: greet them, say 'AI op, Hugo is licensee', remind them 'B to disconnect'. Under 120 chars.]")
     send_multiline(tnc, state, greeting, reason='reply')
     state.reply_count += 1
 
@@ -688,10 +916,45 @@ def main():
     log.info(f"Config loaded: mycall={MYCALL}, tnc={TNC_HOST}:{TNC_PORT}")
     log.info("Listening for connects (v2.0: connected-only, UI frames log-only).")
 
+    # Beacon rotation config
+    beacon_cfg = {
+        'enabled'         : bool(cfg.get('beacon_rotation_enabled', False)),
+        'rotation_minutes': int(cfg.get('beacon_rotation_minutes', 20)),
+        'api_ratio'       : int(cfg.get('beacon_api_ratio', 6)),
+        'prefix'          : cfg.get('beacon_prefix', 'W6OAK AI bot CM87. '),
+        'max_len'         : int(cfg.get('beacon_max_len', 128)),
+        'pool_file'       : cfg.get('beacon_pool_file', 'BTEXT_POOL.md'),
+    }
+    if beacon_cfg['enabled']:
+        log.info(
+            f"BTEXT rotation: every {beacon_cfg['rotation_minutes']} min, "
+            f"api_ratio={beacon_cfg['api_ratio']}, pool={beacon_cfg['pool_file']}"
+        )
+    else:
+        log.info("BTEXT rotation: DISABLED (set beacon_rotation_enabled=true to enable)")
+
     heartbeat_interval = 60
     while True:
         tnc = TNC()
         shutdown.tnc = tnc
+        # Fresh BeaconManager bound to this TNC instance. We recreate it on every
+        # reconnect so a stale socket never lingers inside it.
+        beacon_mgr = None
+        if BEACON_MANAGER_AVAILABLE:
+            try:
+                beacon_mgr = BeaconManager(
+                    tnc=tnc,
+                    enabled=beacon_cfg['enabled'],
+                    rotation_minutes=beacon_cfg['rotation_minutes'],
+                    api_ratio=beacon_cfg['api_ratio'],
+                    prefix=beacon_cfg['prefix'],
+                    max_len=beacon_cfg['max_len'],
+                    pool_file=beacon_cfg['pool_file'],
+                    api_key=api_key,
+                )
+            except Exception as e:
+                log.warning(f"BeaconManager init failed: {e}")
+                beacon_mgr = None
         try:
             tnc.connect_bridge()
             tnc.setup_monitor()
@@ -713,6 +976,12 @@ def main():
                         f"{session_count} sessions, {state_label}"
                     )
                     last_heartbeat = now
+                # BTEXT rotation: no-op unless enabled, due, and not mid-QSO.
+                if beacon_mgr is not None:
+                    try:
+                        beacon_mgr.maybe_rotate(busy=busy)
+                    except Exception as e:
+                        log.warning(f"beacon rotation error (continuing): {e}")
                 try:
                     data = tnc.sock.recv(512)
                     if data:

@@ -12,10 +12,81 @@ This file is intended to be read by the packet bot to help plan multi-hop connec
 
 - **Alias / Callsign** shown as `ALIAS:CALLSIGN-SSID` where known (e.g. `KRDG:N6RZR-4`).
 - **Type** column: `KA` = KA-Node (Kantronics proprietary, silent, user drives routing), `K-Net` = NET/ROM node (smart, auto-routes, supports `NODES`/`ROUTES`), `Both` = same site runs both, `?` = unknown.
-- Most aliases on 145.050 follow a pattern: `K` + first 4–5 letters = KA-Node flavor, plain word = K-Net / NET/ROM flavor (e.g. `KRDG` vs `RDG`, `KHILL` vs `HILL`).
+- Most aliases on 145.050 follow a pattern: `K` + first 4-5 letters = KA-Node flavor, plain word = K-Net / NET/ROM flavor (e.g. `KRDG` vs `RDG`, `KHILL` vs `HILL`, `KROCK` vs `ROCK`).
+- **Dual-service sites**: when a station runs BOTH a KA-Node and a K-Net node, they're usually on the *same TNC* (a KPC-3+ in dual mode), with the base callsign as the KA-Node and the `-5` SSID as the K-Net. Known examples: N6ZX (WOODY + WBAY) at Kings Mtn, K6FB (KROCK + ROCK) at Castle Rock SP, WB6YNM (KBERR + BERRY, and KBETH + BETHEL) at Bethel Island, KF6ANX (KJOHN + JOHN, KHILL + HILL) near Livermore.
 - On 145.050, `HMKR` **requires port 1 to be specified** when connecting through it: `c 1 KC7HEX-1`.
 - `s` suffix on KA-Node connects means **STAY** (keep the user at the node if the remote drops): `c KBANN s`.
 - K-Net nodes accept `c ALIAS` and route automatically; KA-Nodes require chaining one hop at a time.
+
+---
+
+## Geographic Quick Reference (where nodes physically live)
+
+The 145.050 backbone spans California, Nevada, and Oregon. Below is the "which-node-is-where" view for the nodes most commonly named in W6OAK paths. Use this alongside the reachability tables when planning chains, the geometry often explains why a chain works or dies at a given hop.
+
+### Bay Area and Peninsula
+
+| Node | Callsign | Where | Notes |
+|---|---|---|---|
+| W6OAK / KOAK | W6OAK | East Oakland (CM87vs) | Us. 200 ft MSL, X300A. |
+| WOODY / WBAY | N6ZX | Kings Mountain (above Woodside, Peninsula) | Single site, three services: KMBBS (BBS), WOODY (KA), WBAY (K-Net). W6OAK's busiest neighbor. |
+| MONTC | K2YE-5 | Mt. Umunhum / Monte Cristo ridge (Santa Clara Co.) | K-Net hub, frequency-crosses 145.050 ↔ 144.910 via NET/ROM. |
+| SCLARA | KI6ZHD-5 | Santa Clara (flatlands) | K-Net that also digipeats UI frames. |
+| FCITY | KI6UDZ-7 | Foster City | |
+| BUTANO | W6SCF-4 | Butano Ridge (San Mateo coast) | Reached via MONTC. |
+| SFRC | "OFF" | San Francisco (American Red Cross SF) | Alias "OFF" is a config typo but node is live. |
+| PAC / KPAC | WA6TOW | Pacifica (inferred) | Degraded, reported down 2024. |
+
+### East Bay and Delta
+
+| Node | Callsign | Where | Notes |
+|---|---|---|---|
+| KELSO / ELSO | WA6KQB-5 | El Sobrante | |
+| BRKND | KJ6WEG | Berkeley (inferred) | |
+| BRKNRG | N6KRV-5 | Briones / Bear Ridge (inferred) | |
+| HILL / KHILL | KF6ANX-5 | Hill near Livermore (East Bay) | Same site as JOHN. |
+| JOHN / KJOHN | KF6ANX-4 | Hill near Livermore | Solar/battery 24/7 remote. |
+| LPRC3 / KLPRC3 | N6ACK-4 / N6ACK | Los Positas / Livermore area (inferred) | |
+| TRACY / KTRAC | WA6QPU-5 | Tracy | |
+| BERRY / KBERR | WB6YNM-5 / WB6YNM-4 | Bethel Island (Delta, eastern Contra Costa Co.) | Al "Varmint Al" WB6YNM's site. |
+| BETHEL / KBETH | WB6YNM-3 | Bethel Island | Al's home node, KA + K-Net in one KPC-3+. |
+| MARSND | KB6HOH-11 | (East Bay area) | Winlink RMS. |
+
+### Santa Cruz Mountains (south of the South Bay, NOT SoCal)
+
+| Node | Callsign | Where | Notes |
+|---|---|---|---|
+| ROCK / KROCK | K6FB-5 (K-Net) / K6FB (KA-Node) | Castle Rock State Park, Santa Cruz Mtns | Direct RF from W6OAK, quality 192. **Both services run on the same TNC** — KROCK is the KA-Node alias (callsign K6FB, "Wild Node"), ROCK is the K-Net alias (callsign K6FB-5). Same pattern as N6ZX running WOODY (KA) + WBAY (K-Net) from one TNC at Kings Mtn. Direct `c KROCK` confirmed from W6OAK 2026-04-19 at 17:15. Las Cumbres ARC operates this site. Gateway into a cluster of Central Calif. / Sierra neighbors. |
+
+### North Bay / Sonoma / Solano
+
+| Node | Callsign | Where | Notes |
+|---|---|---|---|
+| KN6BDH-1 | KN6BDH | Vallejo | BBS, reliable direct RF from WOODY. |
+| SONND | K6ACS | (Sonoma area) | |
+| MARSND | KB6HOH-11 | (Marin/North Bay area) | |
+
+### Sierra Foothills and Sac Valley
+
+| Node | Callsign | Where | Notes |
+|---|---|---|---|
+| BANNER / KBANN | KF6DQU-9 | Banner Mountain (Nevada Co. / Grass Valley) | Key hop for NorCal → OR chain. |
+| AUBNOD | KK6SEN-4 | Auburn | |
+| COOL | KM6LYW-4 | Cool, CA (Sierra foothills) | Craig KM6LYW. |
+| EDH | N6QDY-5 | El Dorado Hills | |
+| HOGAN | WA6D-5 | Near Hogan Reservoir, Calaveras County | K-Net that digipeats UI frames. |
+| VOLC | N3CKF-5 | Volcano, CA (Amador County) | |
+| HERALD | W6UHQ-4 | Herald, CA (Sac Valley) | |
+| SACBBS / SACCHT / SACNOD | NC6J-2/-3/-4 | Sacramento | |
+
+### Far north / Oregon
+
+| Node | Callsign | Where | Notes |
+|---|---|---|---|
+| KRDG / RDG | KE6CHO-5 / N6RZR-4 | Redding | Next hop past KBANN on the OR chain. |
+| HMKR | — | Hamaker Mtn (siskiyous, CA/OR border) | Port 1 required: `c 1 KC7HEX-1`. |
+| KC7HEX-1 / MED | KC7HEX | Medford OR | Walter's station. |
+| PHXOR | — | Phoenix OR | |
 
 ---
 
@@ -42,7 +113,7 @@ Each row is a directed edge "from node A you can reach node B". Bidirectional ed
 | WOODY:N6ZX | KA | W6ELA-1 (Palo Alto BBS) | BBS | chained connect from WOODY's converse mode, Ed's BBS2 on the far end | 2026-04-18 | operator confirmed |
 | WBAY:N6ZX-5 | K-Net | MONTC:K2YE-5 | K-Net | on 145.050; both confirmed as direct neighbors of OAK | 2026-04-17 | msg 1161 + OAK ROUTES |
 | MONTC:K2YE-5 | K-Net | SNY:K6SNY-5 | K-Net | **frequency crossing** to 144.910 MHz — NET/ROM handles switch automatically | 2026-04-17 | msg 1161 (KK6FPP) |
-| ROCK:K6FB-5 (SoCal) | K-Net | BANNER:KF6DQU-9, BETHEL:WB6YNM-3, BULN:K6IXA-5, BUTANO:W6SCF-4, EDH:N6QDY-5, ELSO:WA6KQB-5 | K-Net | heard from ROCK's Nodes list, multiple one-hop neighbors | 2024 | KC7HEX "KROCK Up and Running" |
+| ROCK:K6FB-5 (Castle Rock SP, Santa Cruz Mtns) | K-Net | BANNER:KF6DQU-9, BETHEL:WB6YNM-3, BULN:K6IXA-5, BUTANO:W6SCF-4, EDH:N6QDY-5, ELSO:WA6KQB-5 | K-Net | heard from ROCK's Nodes list, multiple one-hop neighbors | 2024 | KC7HEX "KROCK Up and Running" |
 
 ---
 
@@ -208,7 +279,7 @@ Pulled directly from our own K-Net node via `CONNECT OAK` followed by `NODES`, `
 | JOHN | KF6ANX-4 | K-Net | (KA sibling = `KJOHN`) |
 | MONTC | K2YE-5 | K-Net | Mt. Umunhum / Monte Cristo |
 | NITE | KI6JAS-6 | K-Net | ? |
-| ROCK | K6FB-5 | K-Net | LCARC / Rock (SoCal) |
+| ROCK | K6FB-5 | K-Net | LCARC / Castle Rock State Park (Santa Cruz Mtns) |
 | SCLARA | KI6ZHD-5 | K-Net | Santa Clara (KI6ZHD) |
 | SFRC | OFF | K-Net | **American Red Cross SF. Alias "OFF" is a config typo — not a status flag. Operator intended to disable K-Net via the name, instead immortalized it. Node is live.** |
 | SNY | K6SNY-5 | K-Net | Sunnyvale |
@@ -262,7 +333,7 @@ All at quality 192 (high). `!` marks locked/manual entries. Number after quality
 ### Recommended bot preferences (updated)
 
 - **From W6OAK to South Bay BBS (SNY)**: `c SNY` — K-Net routes via WBAY → MONTC automatically, handles 145.050↔144.910 crossing.
-- **From W6OAK to anywhere in SoCal via ROCK**: `c ROCK` (direct RF), then chain into ROCK's neighbors.
+- **From W6OAK to ROCK's neighbor cloud (Central Calif. / Sierra)**: `c ROCK` (direct RF), then chain into ROCK's neighbors. ROCK sits at Castle Rock State Park in the Santa Cruz Mountains and is NOT a SoCal gateway, older notes that called it that were wrong.
 - **From W6OAK to Medford OR (KC7HEX-1)**: no K-Net shortcut — use the manual chain `c HILL / c JOHN / c KBANN / c KRDG / c HMKR / c 1 KC7HEX-1`. (HILL/JOHN are the K-Net entry, the rest of the chain is KA-Node.)
 - **Mixed-type edges**: once we leave KRDG heading north, we're KA-Node-only territory until we reach MED (which is K-Net at the Medford end).
 
@@ -589,7 +660,7 @@ Status key:
 | KPAC | PAC | WA6TOW-1 / WA6TOW-5 | 145.05 | WA6TOW | Pacifica (inferred) | Degraded | Reported down 2024. Still locked in OAK ROUTES but not in NODES. |
 | — | BANNER | KF6DQU-9 | 145.05 | KF6DQU | Banner Mtn (Grass Valley) | Live 2026-04-19 | KF6DQU-10 heard today (ax2). Confirmed hop for KC7HEX's OR→SF path 2026-04-18. |
 | KBANN | — | KF6DQU-9 (same site, KA alias) | 145.05 | KF6DQU | Banner Mtn | Live 2026-04-19 | KA-Node alias. N6PAA confirmed `c wbay via kbann` works 2026-04-18 (single-digi AX.25 shortcut). |
-| — | ROCK | K6FB-5 | 145.05 | K6FB (Rock site) | Castle Rock State Park (SoCal/Central) | Live 2026-04-19 | K6FB and K6FB-5 both heard today on ax0. Direct RF to OAK, quality 192. |
+| KROCK | ROCK | K6FB (KA) / K6FB-5 (K-Net) | 145.05 | Las Cumbres ARC | Castle Rock State Park, Santa Cruz Mtns | Live 2026-04-19 | K6FB and K6FB-5 both heard today on ax0. **Direct RF to OAK, quality 192, confirmed `c KROCK` handshake from W6OAK 2026-04-19 17:15** ("###CONNECTED TO WILD NODE KROCK(K6FB)"). **Both services run on the same TNC** — KROCK is the KA-Node alias (K6FB), ROCK is the K-Net alias (K6FB-5). Same pattern as N6ZX (WOODY/WBAY) at Kings Mtn. South of the South Bay, NOT SoCal (older notes mistagged it). |
 | — | SFRC | OFF (callsign literally "OFF") | 145.05 | American Red Cross SF | San Francisco | Live 2026-04-19 | OFF heard on ax0 today. Alias "OFF" is a config typo; node is live. |
 | — | LPRC3 | N6ACK-4 | 145.05 | N6ACK | Los Positas / Livermore area (inferred) | Reported | In OAK ROUTES, not in NODES. Probably gateway-only. |
 | KLPRC3 | — | N6ACK | 145.05 | N6ACK | same site | Reported | KA sibling |
@@ -741,6 +812,30 @@ Use `via K2YE-7` to reach 144.91 stations (like K6SNY-1 BBS) without first conne
 - `c X s` = connect and STAY (KA-Node; keeps you parked at the node if the far end drops)
 - `c X via Y` = AX.25 connect to X digipeated through Y (no NET/ROM)
 - `c N callsign` = connect specifying port N (required for HMKR)
+
+---
+
+## Node naming and dual-service sites
+
+Most operators on 145.050 run a single TNC that simultaneously offers two services: a **KA-Node** (Kantronics proprietary, user drives each hop manually) and a **K-Net / NET-ROM** node (smart router, auto-routes to advertised aliases). Aliases follow a convention:
+
+- **Base callsign + KA-Node alias starting with `K`** = the KA-Node side. Example: `KROCK` (callsign K6FB) is the KA-Node at Castle Rock.
+- **`-5` SSID + plain alias** = the K-Net side of the same TNC. Example: `ROCK` (callsign K6FB-5) is the K-Net node at the same Castle Rock site.
+
+Known dual-service sites in the Bay Area and NorCal:
+
+| Site | KA-Node | K-Net | Location |
+|---|---|---|---|
+| N6ZX | WOODY (N6ZX) | WBAY (N6ZX-5) | Kings Mountain |
+| K6FB | KROCK (K6FB) | ROCK (K6FB-5) | Castle Rock SP, Santa Cruz Mtns |
+| KF6ANX | KJOHN (KF6ANX-4), KHILL (KF6ANX-5) | JOHN / HILL (same SSIDs) | Hill near Livermore |
+| WB6YNM | KBERR (WB6YNM-4), KBETH (WB6YNM-3) | BERRY / BETHEL | Bethel Island |
+
+**When to use which:**
+- Use the **K-Net alias** (`c ROCK`, `c WOODY` if it's K-Net side, etc.) when you want NET/ROM to route further for you. K-Net nodes accept multi-hop destinations and handle the routing themselves.
+- Use the **KA-Node alias** (`c KROCK s`, `c WOODY s`) when you want to chain hops manually, digipeat UI frames, or park yourself at the node for a terminal-style session (PBBS messaging, JHEARD, converse).
+
+**W6OAK direct-RF neighbors (no digipeating needed):** WOODY, MONTC, BANNER, KROCK/ROCK. All confirmed quality ~192 on 2026-04-19.
 
 ---
 

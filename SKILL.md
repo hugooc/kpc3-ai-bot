@@ -19,6 +19,12 @@ No Remote Desktop, no PuTTY GUI interaction, no clipboard hacks needed.
 
 ---
 
+## Before you begin
+
+If a project folder is open (typically `Kantronics KPC3+ Claude Skill`), read its `STATE.md` file first. STATE.md is the authoritative source for current architecture, file locations, bot version, log paths, and any recent changes. This skill covers the KPC-3 protocol and commands. STATE.md covers the current deployment.
+
+---
+
 ## Architecture
 
 ```
@@ -42,7 +48,7 @@ Mac ──── network ──── Windows 10 (192.168.1.100) ──── kp
 | Digipeater | ON (`/R`) |
 | TNC | Kantronics KPC-3+ |
 | COM Port | COM11 (USB Serial on Windows) |
-| Windows machine | 192.168.1.100 (Windows PC, user: YOURUSER) |
+| Windows machine | 192.168.1.100 (Windows PC, SSH login: `you`, home folder: `C:\Users\youruser\`) |
 | Bridge TCP port | **8765** |
 
 ---
@@ -286,7 +292,7 @@ def restart_bridge():
                 break
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect('192.168.1.100', username='YOURUSER', key_filename=key, timeout=5)
+    ssh.connect('192.168.1.100', username='you', key_filename=key, timeout=5)
     stdin, stdout, stderr = ssh.exec_command(
         'powershell -Command "Start-ScheduledTask -TaskName KPC3Bridge"'
     )
@@ -1567,7 +1573,7 @@ Only needed if a tool must open COM11 directly (e.g. a Kantronics firmware updat
 
 The bridge (`kpc3_bridge.ps1`) runs as a Windows Task Scheduler job named **KPC3Bridge** and starts automatically at login. It holds COM11 open exclusively for as long as it's running, and fans out to multiple TCP clients on port 8765.
 
-**Log file:** `C:\Users\hugoo\kpc3_bridge.log`
+**Log file:** `C:\Users\youruser\kpc3_bridge.log`
 
 ### Starting and stopping from the Windows box
 

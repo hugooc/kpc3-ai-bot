@@ -180,12 +180,50 @@ Each checkbox becomes a testable behavior. The soak test harness is how we prove
 ## 11. References
 
 - `SKILL.md` — TNC operating reference
+- `STATE.md` — current architecture, versions, paths, and which machine runs what. The "what's true right now" doc. This design doc is the "why we built it this way" doc.
 - `NODE_PATHS.md` — network topology for route planning
 - `NET_CONTROL_2026.md` — Sunday net operator playbook
 - `KANTRONICS_KPC3_REV-H.md` — authoritative KPC-3+ command reference
 - `w6oak_ai_bot.py` — the code this doc governs
 - `private/DEPLOYMENT_INVENTORY.md` — live snapshot of what's installed on the Windows host (paths, scripts, logs, scheduled tasks). Not in version control. Kept current by the operator.
 - W6ELA incident log, 2026-04-17 — the field experience that motivated most of §7
+
+---
+
+## 12. Since v2.0 — what changed and why
+
+This section tracks where the live bot has drifted from the original v2.0 spec above. Each entry is a short note, not a full redesign. For current state (file paths, what runs where, bot version), see `STATE.md`.
+
+### v2.3.0 — Emergency Ops mode (2026-04-19 morning)
+
+Added an escort flow for non-ham government or served-agency callers during drills or declared emergencies. The bot loads `EMERGENCY_CONTACTS.md` at boot, injects it into the system prompt as an `<emergency_directory>` block, and flips into a drill-by-default escort mode when the caller's message matches an emergency keyword or an agency alias.
+
+Key rules of the escort flow:
+
+- First reply on mode entry announces "DRILL MODE" and asks the caller to confirm drill vs real before any slots get collected.
+- Real mode always reminds the caller once that W6OAK is a volunteer relay, not 911.
+- Templates cover supplies, welfare, sitrep, medical, and evacuation.
+- Slots are filled one per turn, user input is preserved verbatim, the bot never auto-transmits on the caller's behalf.
+
+Why: the station is reachable by county EOCs and served agencies during an activation. The bot needed a structured, safe way to compose a message and route it, without ever implying that the bot itself was dispatching help.
+
+### v2.4.0 — TX sanitize + topology handling (2026-04-19 afternoon)
+
+Two fixes, both traced to the W6ELA-15 QSO incident earlier that day.
+
+**TX sanitizer.** AX.25 is 7-bit ASCII in practice. When Claude generated replies containing em-dashes, curly quotes, ellipsis chars, or backticks, those bytes either became `?` on encode or showed up as garbled multi-byte UTF-8 on the receiving op's screen. Added `sanitize_tx()` as a single chokepoint at `TNCSession.send()`: every string bound for the TNC gets substituted to safe ASCII before encoding. Em-dashes become ` - `, curly quotes become straight quotes, ellipsis becomes `...`, backticks become single quotes. Idempotent, preserves `\r` and `\n`.
+
+**Topology request handling.** A caller asked for an ASCII map of the node network. The bot tried to draw one, which blew the 120-char cap and forked into multiple corrupted turns. Added a rule to the system prompt: "map", "tree", "topology", "diagram", "ascii art", or "picture" requests get answered with a compact one-line neighbor list, never a visual diagram. If the caller wants more structure, the bot offers to walk one branch at a time.
+
+**Defense in depth for BTEXT.** `beacon_manager._sanitize()` already stripped smart quotes at Haiku fetch time. Updated it to also strip backticks and the ellipsis char, matching the new `sanitize_tx()`. Cleaned every backtick out of `BTEXT_POOL.md` and added a "no backticks" rule to the file's own format guide. Two layers of scrubbing: one at source, one at the socket. Even if a future pool entry or Haiku generation slips in a bad character, `sanitize_tx()` catches it before it hits the wire.
+
+Why: the W6ELA-15 QSO was rated "B+" by the operator. Em-dashes showing as `?"` on Ed's screen and the attempted ASCII tree were the two most visible UX regressions. Both now fixed at the root.
+
+### Operational drift notes
+
+- Current COM port is COM11, not COM17 as older docs say. Source of truth: `STATE.md`.
+- The bot runs on the Windows host (192.168.1.100), not on the Mac. The Mac project folder is authoring and version control only.
+- Bot logs live at `C:\Users\youruser\w6oak_bot\private\logs\` on Windows. The Mac `private/logs/` folder was removed during the 2026-04-19 cleanup pass.
 
 ---
 

@@ -27,6 +27,7 @@ import socket
 import time
 import re
 import logging
+import logging.handlers
 import os
 import json
 import signal
@@ -50,8 +51,23 @@ except ImportError:
     print("WARN: beacon_manager.py not found. BTEXT rotation disabled.")
 
 
-__version__ = "2.3.0"
+__version__ = "2.4.1"
 # Version history
+#   2.4.1 - 2026-04-19 - Log rotation:
+#                        * Swap plain FileHandler for TimedRotatingFileHandler
+#                          on all three logs (bot, legacy v1, rf)
+#                        * Rotate at local midnight, keep 30 days, suffix
+#                          rotated files with .YYYY-MM-DD
+#                        * Live path stays stable so tails and the daily
+#                          report don't need reconfig across midnight
+#   2.4.0 - 2026-04-19 - TX sanitize + topology handling:
+#                        * sanitize_tx() scrubs non-ASCII typography (em/en
+#                          dashes, curly quotes, ellipsis, backticks) BEFORE
+#                          encode, preventing "?"/garbled bytes on the wire
+#                        * System prompt: drop "backticks OK", add strict
+#                          plain-ASCII rule, add topology/map handling so the
+#                          bot answers with a compact neighbor list instead
+#                          of attempting ASCII art
 #   2.3.0 - 2026-04-19 - Emergency Ops mode:
 #                        * Loads EMERGENCY_CONTACTS.md at boot
 #                        * Injects as <emergency_directory> block in system prompt
@@ -118,6 +134,48 @@ DEDUP_RATIO     = 0.85    # SequenceMatcher threshold for "too similar, drop"
 TX_ECHO_TTL     = 6.0     # seconds: how long a just-sent frame counts as self-echo
 
 
+# ---------- TX sanitizer ----------
+# AX.25 frames are 7-bit ASCII in practice. Any non-ASCII byte from a model
+# (em-dashes, curly quotes, ellipsis, soft hyphens, etc.) either gets
+# replaced with "?" by encode(errors='replace') or shows up as multi-byte
+# UTF-8 garbage on the wire. Both look bad to the receiving op.
+#
+# Rather than silently replacing with "?", substitute sensible ASCII
+# equivalents BEFORE encoding so the text stays readable.
+
+_TX_SUBS = {
+    '\u2014': ' - ',   # em-dash
+    '\u2013': ' - ',   # en-dash
+    '\u2212': '-',     # minus sign
+    '\u2018': "'",     # left single quote
+    '\u2019': "'",     # right single quote / apostrophe
+    '\u201c': '"',     # left double quote
+    '\u201d': '"',     # right double quote
+    '\u2026': '...',   # horizontal ellipsis
+    '\u00a0': ' ',     # nbsp
+    '\u200b': '',      # zero-width space
+    '\u00ad': '',      # soft hyphen
+    '`':      "'",     # backtick -> straight quote (TNC can misread `)
+}
+
+def sanitize_tx(text):
+    """Scrub non-ASCII typography to safe ASCII before we hit the wire.
+    Runs in TNCSession.send() on every byte path out of the bot. Idempotent.
+    Keeps \\r and \\n intact."""
+    if text is None:
+        return ''
+    if not isinstance(text, str):
+        try:
+            text = text.decode('utf-8', errors='replace')
+        except Exception:
+            return ''
+    for bad, good in _TX_SUBS.items():
+        if bad in text:
+            text = text.replace(bad, good)
+    # Anything still non-ASCII becomes '?' on encode. Strip to be explicit.
+    return text.encode('ascii', errors='replace').decode('ascii')
+
+
 SYSTEM_PROMPT_BASE = """\
 You are the AI operator on watch at W6OAK, an amateur packet radio station in
 East Oakland, CA (CM87vs). The human licensee and control operator is Hugo.
@@ -138,12 +196,19 @@ STATION FACTS (use only these):
 - Antenna: Diamond X300A at 200 ft MSL
 - QTH: East Oakland, CA, grid CM87vs
 - Frequency: 145.050 MHz
-- Direct RF neighbors: WOODY (N6ZX), MONTC (K2YE-5), BANNER (KF6DQU-9), ROCK (K6FB-5).
+- Direct RF neighbors: WOODY (N6ZX), MONTC (K2YE-5), BANNER (KF6DQU-9),
+  ROCK/KROCK (K6FB / K6FB-5, Castle Rock SP, Santa Cruz Mtns).
 
 OPERATING STYLE:
 - Hard limit: every reply under 120 characters TOTAL, including newlines.
   Count characters. If over, cut. Do not use markdown headers, code fences,
-  bullet lists, or bold. Plain ASCII only. Backticks are OK for commands.
+  bullet lists, or bold.
+- Plain ASCII only. No backticks. No em-dashes or en-dashes (use " - " or
+  a comma). No curly quotes (use straight ' and "). No ellipsis char (use
+  "..."). Non-ASCII bytes corrupt AX.25 frames and show up as "?" on the
+  wire.
+- Quote TNC commands in single quotes, not backticks. Example:
+  'c WOODY' then 'c W6ELA-1'. Never 'c' alone without target.
 - Packet is slow. Every character costs time. Be tight.
 - No fluff. No greetings beyond one line. No snark. No filler.
 - Do not assume where the caller is located based on their callsign. They
@@ -158,9 +223,9 @@ PATH ANSWERING RULES (core job):
 2. If the destination is in the directory, reply with the PRIMARY path.
 3. If the caller asks for more detail, offer the BACKUP path or caveats.
 4. If the destination is NOT in the directory, say:
-   "No verified path here. From MONTC try `NODES <dest>`. de W6OAK"
+   "No verified path here. From MONTC try 'NODES <dest>'. de W6OAK"
 5. Mention frequency-crossing ONLY when relevant (use MONTC's K2YE-N digi map).
-6. Quote syntax verbatim in backticks. Never paraphrase a `c` command.
+6. Quote syntax verbatim in single quotes. Never paraphrase a 'c' command.
 7. Flag freshness briefly if it matters. "Verified 4/18" is fine.
 
 MULTI-TURN PATHS:
@@ -169,6 +234,7 @@ Send the first 2-3 hops, end with "...more?", then send the rest if they
 reply yes. Example for Oregon:
   Turn 1: "OR/Medford: c HILL s / c JOHN s / c KBANN s ...more?"
   Turn 2: "...c KRDG s / c HMKR s / c 1 KC7HEX-1. Verified 4/17. de W6OAK"
+  (Ellipsis as three dots '...', never the single char.)
 
 GOOD vs BAD replies (short is the goal):
 
@@ -184,7 +250,8 @@ TURN-TAKING:
 WHAT YOU CAN HELP WITH:
 - Paths from the Bay Area to: Oregon/Medford, Redding, South Bay BBS,
   Palo Alto BBS (W6ELA-1), Sacramento, Sierra foothills, Vallejo,
-  Santa Clara, Berkeley, SoCal via ROCK, SFRC, and others in the directory.
+  Santa Clara, Berkeley, Central Calif./Sierra via ROCK, SFRC, and others
+  in the directory.
 - Frequency-hopping via MONTC's port digis (K2YE-6/7/8/9/4).
 - Who we are, what gear we run, where we are, what frequency.
 - Confirming they're connected to an AI station, not Hugo.
@@ -199,7 +266,17 @@ WHAT YOU DON'T KNOW:
 
 WHEN ASKED FOR A PATH YOU DON'T HAVE:
 Reply like this (under 120 chars):
-"No verified path for <dest>. Try `NODES <alias>` on MONTC. de W6OAK"
+"No verified path for <dest>. Try 'NODES <alias>' on MONTC. de W6OAK"
+
+TOPOLOGY / MAP / TREE REQUESTS:
+If the caller asks for a "map", "tree", "topology", "diagram", "ascii art",
+or "picture" of the node network, DO NOT try to draw it. ASCII art blows
+the 120-char cap, corrupts in AX.25, and forks into many turns.
+Instead answer with a compact neighbor list in one line, for example:
+  "OAK neighbors: WOODY, MONTC, BANNER, ROCK. Ask for paths. de W6OAK"
+If they want more structure, offer to walk one branch at a time:
+  "Which branch? north (WOODY), east (MONTC), south (BANNER), west (ROCK)?"
+Never send more than 120 chars even if asked "give me everything".
 
 EMERGENCY MODE (escort for non-ham government / served-agency callers):
 
@@ -362,12 +439,20 @@ _ensure_log_dir()
 
 # Decisions log — what the bot did and why. This is the line-oriented
 # human-readable log. Also streams to stdout for the console view.
+# Rotate at local midnight, keep 30 days. Rotated files get a .YYYY-MM-DD suffix;
+# the live path stays stable so tails and the daily report don't need reconfig.
+def _rotating(path):
+    return logging.handlers.TimedRotatingFileHandler(
+        path, when='midnight', interval=1, backupCount=30,
+        encoding='utf-8', utc=False,
+    )
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s  %(levelname)-5s  %(message)s',
     handlers=[
-        logging.FileHandler(BOT_LOG_FILE, encoding='utf-8'),
-        logging.FileHandler(LEGACY_LOG_FILE, encoding='utf-8'),  # v1 compat
+        _rotating(BOT_LOG_FILE),
+        _rotating(LEGACY_LOG_FILE),  # v1 compat
         logging.StreamHandler()
     ]
 )
@@ -377,7 +462,7 @@ log = logging.getLogger('w6oak')
 rf_log = logging.getLogger('w6oak.rf')
 rf_log.setLevel(logging.INFO)
 rf_log.propagate = False
-_rf_handler = logging.FileHandler(RF_LOG_FILE, encoding='utf-8')
+_rf_handler = _rotating(RF_LOG_FILE)
 _rf_handler.setFormatter(logging.Formatter('%(asctime)s  %(message)s'))
 rf_log.addHandler(_rf_handler)
 
@@ -409,8 +494,12 @@ class TNC:
         self.sock = None
 
     def send(self, data):
+        # Single chokepoint for every byte leaving this process toward the
+        # TNC. Strings flow through sanitize_tx() first so non-ASCII
+        # typography never makes it onto the wire. Raw bytes (rare, used
+        # for control chars) pass through unchanged.
         if isinstance(data, str):
-            data = data.encode('ascii', errors='replace')
+            data = sanitize_tx(data).encode('ascii', errors='replace')
         self.sock.sendall(data)
 
     def cmd(self, text):

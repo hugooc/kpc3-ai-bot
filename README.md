@@ -14,8 +14,6 @@ All three talk to the TNC over a persistent TCP serial bridge running on a Windo
 
 ## Architecture
 
-![W6OAK AI Packet Station, Full System View](docs/architecture.png)
-
 ```
 Claude / Bot (TCP) ──── network ──── Windows box on your LAN
                                          │
@@ -29,18 +27,6 @@ Claude / Bot (TCP) ──── network ──── Windows box on your LAN
                                          │
                                       Antenna
 ```
-
-The station is a Kantronics KPC-3 Plus TNC driven by a small Python bot running on a Windows 10 host. A PowerShell TCP bridge (`kpc3_bridge.ps1`) holds the serial port open on COM17 and exposes it on TCP port 8765, so multiple clients can share the TNC without fighting over the COM port. The bridge listens on the LAN only and is firewalled off the public internet.
-
-On top of that bridge, three things happen:
-
-1. **`w6oak_ai_bot.py`** watches the MONITOR stream, opens a session when a remote station connects to W6OAK, and generates replies by calling Claude Haiku via the Anthropic API. All replies go through a set of guardrails (connected-only, 8 second listen window, rate limits, dedup, reply cap) before any bytes hit the air.
-2. **`beacon_manager.py`** rotates BTEXT every 20 minutes from a curated pool, so the beacon stays short, informative, and always announces that the station is AI-operated.
-3. **Interactive operator tools** (a Mac-side Claude session, the KPC3 Console, PuTTY live monitor) share the same TCP bridge for on-demand commanding and real-time observation.
-
-Two separate log files keep the forensic trail clean: `w6oak_rf.log` is the verbatim TNC output, `w6oak_bot.log` is the bot's decisions, and both are linked by a per-session correlation ID.
-
-The human control operator (W6OAK) supervises the station end-to-end, with a Ctrl-C kill switch in the terminal as the emergency stop. See [`BOT_DESIGN_2026.md`](BOT_DESIGN_2026.md) for the full behavioral spec and [`W6OAK_BOT_OVERVIEW.md`](W6OAK_BOT_OVERVIEW.md) for the brief intended for fellow ops on the air.
 
 Any client on your LAN can connect to the Windows machine at TCP port 8765 and send/receive raw TNC bytes. PuTTY on the Windows machine can watch everything in real time at `localhost:8765`.
 

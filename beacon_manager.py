@@ -259,7 +259,13 @@ class BeaconManager:
 # ---------- helpers ----------
 
 def _sanitize(text: str, budget: int) -> str:
-    """Trim, strip smart chars, and clamp to budget. Returns '' if unusable."""
+    """Trim, strip smart chars, and clamp to budget. Returns '' if unusable.
+
+    Note: this runs at Haiku fetch time. The *final* safety net is
+    sanitize_tx() inside TNCSession.send() in w6oak_ai_bot.py (v2.4.0+),
+    which catches typography on every byte leaving the process. This
+    function stays in place so the pool loader and log lines show clean
+    text too, not just the on-air bytes."""
     if not text:
         return ''
     s = text.strip()
@@ -268,7 +274,11 @@ def _sanitize(text: str, budget: int) -> str:
     # Replace smart quotes/dashes with ASCII
     s = (s.replace('\u2018', "'").replace('\u2019', "'")
            .replace('\u201c', '"').replace('\u201d', '"')
-           .replace('\u2013', '-').replace('\u2014', '-'))
+           .replace('\u2013', '-').replace('\u2014', '-')
+           .replace('\u2026', '...'))
+    # Backticks look fine in Markdown but some TNCs misread them. Swap for
+    # single quotes so BTEXT reads the same on the wire as in the pool.
+    s = s.replace('`', "'")
     # Drop non-ASCII
     s = s.encode('ascii', errors='ignore').decode('ascii')
     # Collapse whitespace

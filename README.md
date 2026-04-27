@@ -201,7 +201,6 @@ Issues and PRs welcome, especially:
 - Better CQ detection (current regex only matches destination-field CQ, not payload CQ)
 - Additional node-network awareness in the system prompt
 - Support for TNC firmware variants beyond the KPC-3+
-- A clean copy of `kpc3_bridge.ps1` for the Windows side
 
 ## License
 

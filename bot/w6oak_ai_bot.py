@@ -51,8 +51,55 @@ except ImportError:
     print("WARN: beacon_manager.py not found. BTEXT rotation disabled.")
 
 
-__version__ = "2.4.1"
+__version__ = "2.5.2"
 # Version history
+#   2.5.2 - 2026-04-23 - RING gate for outbound operator sessions:
+#                        * BEL (0x07) bytes arriving while the operator is
+#                          already in an outbound session (e.g. Hugo
+#                          connected to a remote PBBS via PuTTY on the
+#                          shared bridge) no longer trip the RING
+#                          detector. The far end's welcome banner
+#                          commonly contains BEL as pass-through data,
+#                          not as an inbound AX.25 RING signal.
+#                        * New state flag `outbound_active`, set when we
+#                          see `*** CONNECTED to X` without a preceding
+#                          RING, and cleared on `*** DISCONNECTED`.
+#                          RING detection is suppressed while that flag
+#                          is set (or while `busy`).
+#                        * Surfaced by the 2026-04-22 16:32:06 false
+#                          RING logged during an outbound session to
+#                          EDH:N6QDY-5's PBBS. No code fix required to
+#                          that session (bot didn't engage, RING just
+#                          timed out), but the log noise was confusing
+#                          during forensics.
+#   2.5.1 - 2026-04-21 - Post-deploy log review (KI6ZHD-15 QSO analysis):
+#                        * Self-echo fix: SessionState.note_tx now stores
+#                          the sanitize_tx() form of outgoing text in
+#                          recent_tx. Pre-sanitize storage was letting
+#                          echoed frames (already ASCII on the wire) slip
+#                          past is_self_echo whenever the bot's original
+#                          text contained em-dashes / curly quotes /
+#                          ellipsis (ascii_fold turned those into '?',
+#                          which didn't match the arriving ' - ' etc).
+#                          Root-caused against the 4/21 KI6ZHD-15 session,
+#                          where 2 of 8 replies were burned on phantom
+#                          prompts triggered by the bot's own greeting
+#                          echoing back through WOODY.
+#                        * MAX_REPLIES 12 -> 20. Cost at Haiku 4.5 is
+#                          trivial; IDLE_TIMEOUT=300 remains the real
+#                          backstop on quiet ops. Longer engaged QSOs
+#                          are the goal.
+#   2.5.0 - 2026-04-21 - KI6ZHD feedback pass:
+#                        * BTEXT rotation cadence relaxed 20 -> 60 min
+#                          (config.json). api_ratio rebalanced 6 -> 2 so
+#                          steady-state Haiku beacon rate holds at ~1/2 hr.
+#                        * Reply-cap exit: after the "per-QSO limit" farewell,
+#                          bot now escapes to cmd: and issues DISC so the
+#                          session closes cleanly. Previously the session
+#                          stayed half-open and the bot went silent on any
+#                          follow-up frames (reported by KI6ZHD).
+#                        * MAX_REPLIES 8 -> 12. Modest bump so casual QSOs
+#                          don't bump the ceiling mid-conversation.
 #   2.4.1 - 2026-04-19 - Log rotation:
 #                        * Swap plain FileHandler for TimedRotatingFileHandler
 #                          on all three logs (bot, legacy v1, rf)
@@ -128,7 +175,12 @@ LISTEN_WINDOW   = 4.0     # seconds of quiet after last I-frame before we reply
                           # (was 8.0; dropped 4/19 to feel snappier — reassess if
                           # we see bot replying to partial multi-frame turns)
 RATE_LIMIT_SEC  = 20.0    # minimum seconds between our own TX within a session
-MAX_REPLIES     = 8       # hard reply cap per session, then farewell + disconnect
+MAX_REPLIES     = 20      # hard reply cap per session, then farewell + DISC
+                          # (8 through v2.4.2, 12 in v2.5.0, 20 in v2.5.1.
+                          # IDLE_TIMEOUT=300 is the real backstop: quiet ops
+                          # get closed in 5 min regardless of cap, so a
+                          # higher cap only matters for actively-engaged
+                          # QSOs, which is exactly when we want room.)
 DEDUP_RING_SIZE = 5       # how many recent TX to compare against
 DEDUP_RATIO     = 0.85    # SequenceMatcher threshold for "too similar, drop"
 TX_ECHO_TTL     = 6.0     # seconds: how long a just-sent frame counts as self-echo
@@ -196,8 +248,16 @@ STATION FACTS (use only these):
 - Antenna: Diamond X300A at 200 ft MSL
 - QTH: East Oakland, CA, grid CM87vs
 - Frequency: 145.050 MHz
-- Direct RF neighbors: WOODY (N6ZX), MONTC (K2YE-5), BANNER (KF6DQU-9),
-  ROCK/KROCK (K6FB / K6FB-5, Castle Rock SP, Santa Cruz Mtns).
+- Direct RF neighbors (verified in use): WOODY (N6ZX, Kings Mtn KA-Node),
+  WBAY (N6ZX-5, Kings Mtn K-Net, same site as WOODY), MONTC (K2YE-5,
+  Oakland Hills K-Net hub), KROCK (K6FB, Castle Rock SP KA-Node),
+  ROCK (K6FB-5, Castle Rock SP K-Net, same site as KROCK). Every path
+  from W6OAK MUST begin with one of these as the first hop.
+- Aspirational / NOT directly reachable from W6OAK despite appearing in
+  our ROUTES table at q192 locked: HILL, KHILL, JOHN, KJOHN, BANNER,
+  KBANN, LPRC3. Direct connect to any of these from W6OAK fails with
+  retry-count-exceeded (confirmed 2026-04-20). Reach them via c WBAY
+  first, then c HILL / c JOHN / c KBANN from WBAY.
 
 OPERATING STYLE:
 - Hard limit: every reply under 120 characters TOTAL, including newlines.
@@ -712,8 +772,15 @@ class SessionState:
         return text
 
     def note_tx(self, text):
+        # Store the *post-sanitize* form so echo comparisons match what
+        # actually went on the wire. Pre-sanitize text with em-dashes /
+        # curly quotes / ellipsis gets '?'-folded and then fails to match
+        # the ASCII echo that returns. Seen in the KI6ZHD-15 QSO 4/21:
+        # greeting's em-dash became ' - ' on the wire; recent_tx held the
+        # '?'-folded form; is_self_echo returned False; bot burned a reply
+        # on its own greeting coming back.
         self.last_tx = time.time()
-        self.recent_tx.append((time.time(), ascii_fold(text.strip())))
+        self.recent_tx.append((time.time(), ascii_fold(sanitize_tx(text).strip())))
         cutoff = time.time() - max(TX_ECHO_TTL, 60.0)
         self.recent_tx[:] = [(t, x) for (t, x) in self.recent_tx if t >= cutoff][-20:]
 
@@ -883,13 +950,24 @@ def converse(tnc, bot, remote):
                 rf_log.info(f"# session-close corr_id={state.corr_id} reason=farewell")
                 break
 
-            # Reply cap check
+            # Reply cap check. We DISC ourselves here: the old behavior was
+            # to send the farewell and break, leaving the session half-open —
+            # the peer's next frame would get no answer (silent bot).
+            # Sequence mirrors the Ctrl-C path in handle_sigint(): farewell on
+            # the wire, settle, Ctrl-C to cmd:, then DISC.
             if state.reply_count >= MAX_REPLIES:
                 log.info(f"[{state.corr_id}] reply cap ({MAX_REPLIES}) reached — closing")
                 send_multiline(tnc, state,
                                "73 — hitting my per-QSO limit. C W6OAK again anytime. de W6OAK",
                                reason='farewell')
-                time.sleep(1)
+                time.sleep(1.5)
+                try:
+                    tnc.escape_to_cmd()
+                    time.sleep(0.4)
+                    tnc.cmd('DISC')
+                    time.sleep(1)
+                except Exception as e:
+                    log.warning(f"[{state.corr_id}] DISC after reply-cap failed: {e}")
                 rf_log.info(f"# session-close corr_id={state.corr_id} reason=reply-cap")
                 break
 
@@ -1053,6 +1131,11 @@ def main():
             current_peer = None
             ring_seen = False
             ring_time = 0.0
+            outbound_active = False  # operator is in an outbound session we didn't
+                                     # initiate (e.g. PuTTY user connected to a
+                                     # remote node). Suppresses RING on BEL bytes
+                                     # that are just pass-through data from the
+                                     # far end. Cleared on *** DISCONNECTED.
             pkt_count = 0
             session_count = 0
             last_heartbeat = time.time()
@@ -1075,9 +1158,17 @@ def main():
                     data = tnc.sock.recv(512)
                     if data:
                         if b'\x07' in data:
-                            ring_seen = True
-                            ring_time = time.time()
-                            log.info("RING (BEL) detected — incoming connect expected")
+                            if busy or outbound_active:
+                                # BEL received inside a session (ours or the
+                                # operator's outbound). Almost certainly
+                                # pass-through text data from the far end, not
+                                # an inbound AX.25 RING. Suppress. See v2.5.2
+                                # notes above.
+                                pass
+                            else:
+                                ring_seen = True
+                                ring_time = time.time()
+                                log.info("RING (BEL) detected — incoming connect expected")
                         buf += data.decode('ascii', errors='replace')
                 except socket.timeout:
                     pass
@@ -1095,6 +1186,12 @@ def main():
                     rf_log.info(clean)
                     if '>' in clean and ':' in clean:
                         pkt_count += 1
+                    # Clear the outbound-session gate when the TNC reports a
+                    # disconnect at the main-loop level. Matches `*** DISCONNECTED`
+                    # with optional whitespace variants.
+                    if outbound_active and re.search(r'\*\*\*\s*DISCONNECTED', clean):
+                        log.info("Outbound session closed — RING gate cleared")
+                        outbound_active = False
                     if busy: continue
 
                     remote = incoming_connect(line)
@@ -1125,6 +1222,9 @@ def main():
                         else:
                             log.info(f"Outgoing connect to {remote} — ignoring")
                             ring_seen = False
+                            outbound_active = True  # operator is now in a converse
+                                                    # session with `remote`. Gate RINGs
+                                                    # until we see *** DISCONNECTED.
                         continue
                     # Rule §2: UI frames are log-only. No CQ auto-connect in v2.
         except Exception as e:

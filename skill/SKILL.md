@@ -232,6 +232,35 @@ Every mode supports `HELP`. The command list you get back tells you which mode y
 - K-Net HELP — NODES, ROUTES, LINKS, USERS, STATS, C, BYE, BBS, INFO, HELP
 - PBBS HELP — L, LB, R, K, S, SP, SB, ST, J, B, with descriptions in caps
 
+### If you get lost — return to `cmd:`
+
+If you stop being sure what mode you're in or a command returns something unexpected, **don't keep guessing**. Recover to a known state:
+
+1. Send `?` or `HELP`. The help output tells you the current mode (see list above).
+2. If you're inside a PBBS, KaNode, or K-Net node, send `B` (BYE) to exit one layer. Repeat — chained KaNode hops collapse one level per `B`.
+3. If `B` doesn't help, from the TNC's `cmd:` send `DISCONNE`. Then `STATUS` — you want to see `IO DISCONNECTED`. That confirms you're at a clean `cmd:` prompt with no active link.
+4. Only then plan the next command. Don't issue TNC-level commands (`STATUS`, `MHEARD`, `BTEXT`) from inside a PBBS or node — they'll be rejected or, worse, transmitted over the air to whomever you're connected to.
+
+### Mode-command crosswalk — same concept, different verb per mode
+
+The Kantronics command language is not consistent across modes. The same operator intent uses different verbs depending on where you are. Use this table to translate intent → command in whichever mode you're currently in.
+
+| I want to... | TNC `cmd:` | KaNode | K-Net (NET/ROM) | PBBS |
+|---|---|---|---|---|
+| See stations heard on RF | `MHEARD [S\|L]` | `J [S\|L]` (Jheard) | `MHEARD [S\|L]` | `J` (Jheard) |
+| See nodes heard on RF | `NDHEARD [S\|L]` *(alias `ND L`)* | `N [S\|L]` (Nodes known locally) | `ROUTES` (one-hop neighbors) | — |
+| See the routing table (reachable destinations) | — | — | `NODES [alias\|*]` ← **routing table, NOT a heard list** | — |
+| List active links / active users | — | — | `LINKS`, `USERS` | — |
+| Get help / list commands | `HELP` or `?` | `H` or `HELP` | `HELP` | `H` or `?` |
+| Connect onward | `CONNECT call [VIA digi]` | `C call [STAY]` | `C call\|alias [/S]` | — (done before entering PBBS) |
+| Jump to BBS | `CONNECT OBOX` from cmd: | — | `BBS [/S]` | — (you're here) |
+| Abort a pending connect | `DISCONNE` (while pending) | `ABORT` (immediately) | `C` can be cancelled by disconnecting upstream | — |
+| Exit current mode / disconnect | `DISCONNE` | `B` (BYE) | `B` or `BYE` | `B` (BYE) |
+
+**Trap to remember:** in K-Net, `NODES` is the routing/destination table (who this node knows how to reach), **not** a list of what it's hearing on RF right now. For "what is the K-Net node hearing," use `ROUTES` (neighbor quality) and `MHEARD` (raw RF reception). This is the opposite of the `N` command on a KaNode, which IS a local heard/known list.
+
+**Naming quirk — why `J` in some modes and `MHEARD` in others:** The KaNode and PBBS firmware predate the NET/ROM-compatible K-Net code and use the older Kantronics verb `J(heard)` for "recently heard stations." The TNC's own `cmd:` prompt and the K-Net node use the NET/ROM-style verb `MHEARD` for the same concept. Both do essentially the same thing; the name depends on which firmware layer you're talking to. This is a historical artifact, not a bug — memorize the table above.
+
 ### Before any CONNECT — am I already this node?
 
 Before typing `CONNECT <alias>` from W6OAK's `cmd:`, ask: **is this alias W6OAK's own KaNode?** If yes, do not send the connect — you are already there. For W6OAK the short list is:
@@ -245,6 +274,88 @@ Before typing `CONNECT <alias>` from W6OAK's `cmd:`, ask: **is this alias W6OAK'
 If the task is "chain through KaNodes," the FIRST `CONNECT` is to the **first remote** KaNode (e.g. `CONNECT WOODY`, `CONNECT KBERR`). Every subsequent hop is an inside-the-node `C <next>`.
 
 If the task is "use K-Net routing," the FIRST `CONNECT` is to your own K-Net alias `OAK`, then use K-Net commands (`NODES`, `ROUTES`, `C <far>`) from inside.
+
+---
+
+## Task Playbook — Reach a Remote BBS (or any remote station)
+
+Most real operator tasks boil down to: *"go somewhere on the packet network, do a thing, come back."* The user gives you a callsign, a mailbox alias, or a task like "read bulletin #7 at HBOX near Pleasanton." The path is rarely obvious from the name alone and the network changes with propagation, so **follow this loop — don't guess at paths.**
+
+### The six-step loop
+
+1. **Start with `ND L` (NDHEARD LONG).** Always. This is the TNC's log of every node beacon it has heard recently, with timestamps. It is your freshest intel on what's actually reachable right now. Read it before deciding on a route. Look for:
+   - Your intended **destination** appearing directly (no asterisk) — you may be able to skip the intermediate hop entirely.
+   - **Intermediates** (KaNodes or K-Net nodes) that were heard recently and directly. Prefer recent, directly-heard nodes over older ones.
+   - `KALIAS*` with an asterisk means the node was heard **via a digipeater** — the link is weaker and multi-hop; deprioritize.
+
+2. **Consult `NODE_PATHS.md`** in the project folder for known-good paths and recent observations. It's a living document of what has and has not worked. If the destination is listed with a known-good path, try that first. Also record new results there after the task.
+
+3. **Identify node flavor by BEHAVIOR, not by name.** Node names are operator-chosen and inconsistent. The `K` prefix is a hint, not a rule. After connecting to any intermediate:
+   - The **CTEXT / welcome banner** usually says it plainly: *"Welcome to the KaNode KROCK"* or *"NET/ROM Node OAK"*.
+   - If still unclear, send `HELP` (or `?`). **KaNode** help is a short line: `B, C, J, N, X, ABORT, H`. **K-Net** help lists `NODES, ROUTES, LINKS, USERS, STATS, BBS, INFO`.
+   - Don't rely on name conventions on 145.05 or any other frequency. Operators name their nodes however they like.
+
+4. **Choose a route using the decision tree.** In priority order:
+
+   | Situation | Strategy |
+   |---|---|
+   | Destination directly heard on RF (in `ND L`, no asterisk, recent) | Try `CONNECT <dest>` directly from `cmd:`. Fastest path. |
+   | Destination is a K-Net alias (e.g. `HILL`, `BUTANO`) and our K-Net `OAK` knows it | `CONNECT OAK` → inside K-Net: `NODES <dest>` to verify route, then `C <dest>` or `BBS` if heading to a mailbox that K-Net supports. |
+   | Destination is a KaNode / mailbox unreachable from K-Net routing | Chain via a nearby intermediate KaNode that IS in `ND L`: `CONNECT <intermediate>` → inside: `C <dest>`. **A KaNode can relay to a K-Net target** — the intermediate just opens an AX.25 link; it doesn't care what protocol runs at the far end. |
+   | Nothing works | Fall through to step 5's retry loop with a different intermediate. |
+
+5. **Execute patiently, with the 30-second rule and a retry plan.**
+   - After any `CONNECT` or in-node `C <next>`, give it **up to 30 seconds**. Packet is slow. FRACK retries can take time.
+   - If no `*** CONNECTED` banner appears in 30 seconds, **abort and try a different intermediate**. From `cmd:` send `DISCONNE`; from inside a KaNode send `ABORT` immediately while the connect is still pending.
+   - **Pick the next intermediate from `ND L`** — look at the candidate node's own `N`/`NODES` list after connecting to it, to learn who *it* can see on RF. A node can only relay to targets it can actually hear.
+   - Iteration is normal. Example: direct fail → WOODY fail → KROCK success. Don't treat one failure as "unreachable."
+
+6. **Record the path** in `NODE_PATHS.md` after the task: what worked, what didn't, date, time, and which intermediate carried the traffic. Path reliability is time-of-day dependent.
+
+### Worked example: "Read bulletin #7 at HBOX near Pleasanton"
+
+HBOX is the mailbox at HILL / KHILL (KF6ANX-5). Here is how a real session went — note the retries; that's the point of the example.
+
+```
+# Step 1: freshest RF intel
+cmd: ND L                  → HILL heard directly (recent). OAK heard directly.
+                             WOODY heard directly. KROCK heard directly.
+
+# Step 2: NODE_PATHS.md says HILL is a K-Net node, reachable via OAK.
+
+# Step 3: identify flavor — HILL's banner confirms K-Net; HBOX is a mailbox alias.
+
+# Step 4a: try the direct / K-Net routing path first
+cmd: CONNECT OAK           → *** CONNECTED to W6OAK-5
+                             K-Net banner, HELP shows NODES/ROUTES/BBS.
+C HILL                     → *** CONNECTED to HILL:KF6ANX-5
+# At HILL's mailbox: list bulletins, read #7
+LB                         → bulletin list
+R 7                        → CONNECTION DROPPED mid-read. Back to cmd:.
+
+# Step 4b / Step 5: retry via a KaNode intermediate
+cmd: CONNECT WOODY         → 30 seconds, no CONNECTED banner.
+cmd: DISCONNE              → abort.
+cmd: CONNECT KROCK         → *** CONNECTED to KROCK. (KaNode)
+# From inside KROCK, relay to HBOX:
+C HBOX                     → *** CONNECTED to HBOX. (KaNode relaying to K-Net target — fine.)
+LB                         → bulletin list
+R 7                        → full bulletin text captured.
+B                          → disconnect from HBOX, back to KROCK.
+B                          → disconnect from KROCK, back to cmd:.
+
+# Step 6: update NODE_PATHS.md:
+#   HBOX @ HILL / KF6ANX-5 — 2026-04-20 — via KROCK → HBOX (success).
+#   OAK → HILL works for connect, dropped on long reads at this time of day.
+#   Direct CONNECT HILL not attempted this session.
+```
+
+### Rules that apply to every task of this shape
+
+- **If you get lost, return to `cmd:`.** From anywhere, repeated `B` (BYE) + `DISCONNE` from `cmd:` gets you back to a known state. Confirm with `STATUS` expecting `IO DISCONNECTED`.
+- **If a prompt is unfamiliar, send `?` or `HELP`.** It always works and always tells you what mode you're in.
+- **Never send `\r\n` — `\r` only.** A stray `\n` produces `EH?`. See the Session Startup flush sequence.
+- **Don't trust node names.** KHILL vs HILL vs HBOX are not guaranteed to be the same operator or the same box. Always verify with the banner after connecting.
 
 ---
 
@@ -736,7 +847,7 @@ def detect_prompt(buf):
 
 ## Companion file: NODE_PATHS.md
 
-A living map of which nodes reach which other nodes on 145.05 MHz in Northern California lives in the skill folder as `NODE_PATHS.md`. Before attempting a multi-hop or cross-region connect, **read NODE_PATHS.md first** — it has:
+A living map of which nodes reach which other nodes on 145.05 MHz in Northern California lives in the project at `bot/NODE_PATHS.md` (alongside the bot, since the bot also reads it at boot). Before attempting a multi-hop or cross-region connect, **read NODE_PATHS.md first** — it has:
 
 - Confirmed edges between K-Net and KaNode stations, with the type of each endpoint
 - Degraded/broken edges (e.g. `HMKR ↔ RDG` currently broken)
@@ -752,16 +863,19 @@ The file is maintained by hand, so treat it as authoritative for "has this path 
 
 **These only work at the `cmd:` prompt (TNC Command Mode).** If you're inside a PBBS, KA-Node, or K-Net node, exit first with `B`.
 
+**Before any remote-connect task, run `ND L` first.** `NDHEARD LONG` (alias `ND L`) is the TNC's timestamped log of node beacons recently heard on RF — your freshest intelligence on which intermediates are actually reachable *right now*. No asterisk = directly heard (strong candidate); `KALIAS*` = heard via a digipeater (deprioritize). Skipping this step and guessing at paths is the #1 cause of 30-second connect timeouts.
+
 | Command | Purpose |
 |---|---|
+| `ND L` / `NDHEARD LONG` | **Nodes heard recently on RF, with timestamps. Run FIRST for any remote task.** `ND S` (short) for just the call list. |
+| `MHEARD` | Recently heard **stations** (not just nodes). Both raw heard and digipeated. |
 | `ID` | Transmit ID packet over the air |
-| `STATUS` | Current stream/link status |
+| `STATUS` | Current stream/link status — confirm with `IO DISCONNECTED` after aborts |
 | `DISPLAY` | All parameter values |
 | `VERSION` | Firmware version |
 | `MONITOR ON/OFF` | Enable/disable packet monitoring |
-| `MHEARD` | Recently heard stations |
 | `CONNECT call [VIA digi]` | Connect to a station |
-| `DISCONNE` | Disconnect current stream |
+| `DISCONNE` | Disconnect current stream (also aborts a pending connect) |
 | `MYCALL callsign` | Set/view TNC callsign |
 | `BEACON EVERY n` | Beacon every n minutes (0=off) |
 | `BTEXT text` | Set beacon text |
@@ -921,10 +1035,10 @@ Rule: if you see `B,C,J,N` on one line, it's a **KaNode**. If you see `NODES`, `
 | Heard-list commands | `J` = stations heard, `N` = nodes heard | `MHEARD` = stations heard (node-local) |
 | "Stay on node" on onward connect | `C call S(tay)` | `C call /S` |
 | Abort a pending connect | `ABORT` | not available the same way |
-| Typical naming | `K` + 3-4 letters (e.g. `KOAK`, `KBERR`) | Location word (e.g. `OAK`, `BERRY`, `BUTANO`) |
+| Typical naming *(operator-dependent, unreliable)* | often `K` + 3-4 letters (e.g. `KOAK`, `KBERR`) | often a location word (e.g. `OAK`, `BERRY`, `BUTANO`) |
 | Kantronics term | KaNode | K-Net (their NET/ROM implementation) |
 
-**Rule of thumb:** alias starts with `K` and is short → probably a KaNode. Real word like `OAKLND` or `BUTANO` → probably K-Net. Not 100% reliable — always confirm with `HELP`.
+**Naming is NOT a reliable guide.** A rough pattern exists — aliases starting with `K` are *often* KaNodes and location-word aliases like `BUTANO` or `OAKLND` are *often* K-Net — but node names are chosen by each operator and the convention is broken often enough that you must not rely on it. **Confirm flavor by behavior:** look at the CTEXT banner after connecting (it often says "KaNode" or "NET/ROM" outright), or send `HELP` (KaNode help lists `B, C, J, N, X, ABORT, H`; K-Net help lists `NODES, ROUTES, LINKS, USERS, STATS, BBS`).
 
 ### Identifying which type you're on after connecting
 
@@ -1358,7 +1472,7 @@ DISCONNE                       ← drop any half-open stream
 
 **145.63 MHz:** `OAK:W6OAK-5`, `BLKMTN:W6SCF-6`, `LGATOS:AG6WR-5`, `SFRCND:W6REM`
 
-Naming convention on 145.05: K-Net nodes use a location name (e.g. `BUTANO`), KA-Nodes use `K` + first 4 letters of the K-Net version (e.g. `KBUTA`). Mailboxes use first letter + `BOX` (e.g. `BBOX`).
+Naming on 145.05 (and every other frequency) is **operator-dependent and not a reliable indicator of node flavor**. A rough pattern you'll often see: K-Net nodes use location words (e.g. `BUTANO`, `OAKLND`), KaNodes use a `K` prefix + 3–4 letters (e.g. `KBUTA`, `KOAK`), and mailboxes use first letter + `BOX` (e.g. `BBOX`, `HBOX`). But operators name their nodes however they like — `HILL` is a K-Net node on this band, not a mailbox. Always confirm type via the CTEXT banner or `HELP` after connecting, and verify a mailbox's real alias from its prompt rather than inferring it from a neighbor's name.
 
 ---
 
@@ -1634,6 +1748,54 @@ The `pause` at the end keeps the window open so you can see the result before it
 ### When the bridge crashes mid-day
 
 The scheduled task is set to run "at login," not "on crash." If the bridge process dies while you're logged in, it won't self-restart. Either hit Start-ScheduledTask manually or log out and back in. Future work item (tracked in BOT_DESIGN_2026 §9): auto-restart via a separate watchdog task.
+
+---
+
+## Common log queries
+
+The bridge log (`C:\Users\youruser\kpc3_bridge.log`) only records TCP client connects — it has **no packet content**. For anything about actual RF activity (who connected to W6OAK, what the bot said, path-routing traffic), use the bot logs at `C:\Users\youruser\w6oak_bot\private\logs\`:
+
+| File | What's in it |
+|---|---|
+| `w6oak_bot.log` | Bot decisions: heartbeats, BTEXT rotations, RING detections, session START/END, TX replies, self-echo filtering, outgoing-connect events. Daily-rotated. |
+| `w6oak_rf.log` | Raw heard-traffic dump (every packet the TNC emitted on the monitor stream). Big. Daily-rotated. |
+| `w6oak_ai_bot.log` | Byte-identical copy of `w6oak_bot.log`. Compat shim — see `STATE.md` "Known drifts." |
+
+### Who connected to W6OAK in the last N hours?
+
+```python
+import paramiko, os
+ssh = paramiko.SSHClient()
+ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh.connect('192.168.1.100', username='you',
+            key_filename=os.path.expanduser('~/.ssh/kpc3_key'), timeout=8)
+sftp = ssh.open_sftp()
+
+# Pull today + the last couple of rotated files. Adjust the date list for the window.
+files = ['w6oak_bot.log', 'w6oak_bot.log.2026-04-22', 'w6oak_bot.log.2026-04-21']
+for f in files:
+    try:
+        sftp.get(f'C:/Users/youruser/w6oak_bot/private/logs/{f}', f'/tmp/{f}')
+    except FileNotFoundError:
+        pass
+sftp.close(); ssh.close()
+
+import re
+for f in files:
+    p = f'/tmp/{f}'
+    if not os.path.exists(p): continue
+    for line in open(p):
+        if re.search(r'Incoming connect from|Session START|Session END|RING \(BEL\)', line):
+            print(line.rstrip())
+```
+
+**What to look for:**
+- `RING (BEL) detected — incoming connect expected` — the TNC signaled an inbound call
+- `Incoming connect from <CALLSIGN>` — the actual inbound identified
+- `Session START <-> <CALLSIGN>` / `Session END <-> <CALLSIGN> (N replies, Ns)` — bot session bounds
+- `Outgoing connect to <ALIAS> — ignoring` — **our** station connecting outward (Hugo at the console). Bot correctly ignores these.
+
+**Gotcha:** a `RING` without a matching `Incoming connect from` is usually a false trigger — a BEL (0x07) character inside another session's text stream (e.g. a remote PBBS welcome banner) tripping the detector. Cross-check against `w6oak_rf.log` at the same timestamp to see whether a real call arrived.
 
 ---
 

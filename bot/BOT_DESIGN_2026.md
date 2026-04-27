@@ -89,7 +89,7 @@ Config key: `allowed_callers`. If present and non-empty, the bot only opens sess
 The bot's identity beacon is for passive discovery, not conversation.
 
 - **BTEXT length:** under **40 characters** for multi-hop UNPROTO. Rationale: each digi hop retransmits the full frame; a long BTEXT floods the network and invites echo-driven congestion.
-- **Interval:** `BEACON EVERY 20` (20 minutes). Three per hour is enough to make the bot discoverable without being a nuisance.
+- **Interval:** `BEACON EVERY 60` (60 minutes, as of 2026-04-21). One per hour is enough to make the bot discoverable without being a nuisance; was previously 20 min but that felt noisy on multi-hop paths per KI6ZHD feedback.
 - **Content requirement:** must announce "AI" or "bot" or equivalent so passing ops know what they'd be connecting to. FCC Part 97 identification is separate and satisfied by `MYCALL`.
 - **Suspend during maintenance:** when the bot process is stopped (Ctrl-C), the Python side transmits nothing. The TNC's autonomous beacon per `BEACON EVERY` still runs at the TNC level unless separately disabled there.
 - **Current BTEXT:** `W6OAK AI node CM87. C W6OAK to chat. 73!` (40 chars). This replaces the longer "Ask about routes" variant, which was fine for local reach but chatty on multi-hop paths.
@@ -109,6 +109,30 @@ Today the bot writes a single log that mixes what the TNC said with what the bot
 **Rotation:** daily, keep 30 days. Bot handles rotation itself (no logrotate dependency on the Windows box).
 
 **Correlation ID format:** `YYYYMMDD-HHMMSS-<random4>` per session. Printed in every bot-log line for that session and embedded in the RF log header when a session opens.
+
+### Bot-log line vocabulary
+
+What each log line means and what to grep for when doing forensics. All lines are prefixed with `YYYY-MM-DD HH:MM:SS,mmm  LEVEL  ` — these descriptions cover the message portion.
+
+| Line | Meaning | Useful for |
+|---|---|---|
+| `heartbeat v<ver>: <N> pkts heard, <M> sessions, listening` | Liveness tick, one per minute. Confirms bot is alive and shows cumulative RF counters. | Is the bot actually running? Did it wedge? |
+| `BTEXT rotated (<n> chars): <text>` | Beacon text was rotated. | Audit of recent beacons, content drift. |
+| `HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"` | Haiku API call, usually for beacon selection (not a user reply). | API cost / usage tracking. |
+| `RING (BEL) detected — incoming connect expected` | TNC emitted a BEL (0x07). Usually means an inbound connect. See gotcha below. | First signal of a possible inbound. |
+| `Incoming connect from <CALL>` | Inbound connect confirmed, remote callsign identified. | The real "someone connected" event. |
+| `[<corrID>] Session START <-> <CALL>` | Bot opened a session for this QSO. | Session boundary marker. |
+| `TX >>> <text>` | Outbound frame the bot just sent. | Reconstructing bot side of QSO. |
+| `[<corrID>] RX <<< <CALL>: <text>` | Inbound frame the bot received inside a session. | Reconstructing remote side of QSO. |
+| `[<corrID>] turn complete (<n> chars): "<text>"` | Listen-window closed, remote turn finalized. | Timing analysis of turn-taking. |
+| `[<corrID>] self-echo: "<text>"` | Inbound frame matched recent TX and was discarded. | Verifying the self-echo filter is working. |
+| `[<corrID>] Session END <-> <CALL> (<N> replies, <S>s)` | Session closed. Shows replies used and duration. | QSO-length stats. |
+| `Outgoing connect to <ALIAS> — ignoring` | **We** (the operator at the console) initiated an outbound connect. Bot correctly does not treat this as a session. | Distinguishing operator activity from inbound QSOs. |
+| `Bridge connected: <host:port>` | Bot's TCP client socket to the bridge just opened. | Detecting bot restarts or bridge flaps. |
+| `Listening for connects (v<ver>: ...)` | Bot just entered its main loop. Pairs with a bridge-connect event. | Detecting bot restarts. |
+| `TNC monitor mode active (MCON OFF, MCOM OFF, MONITOR ON, RING ON)` | Bot has configured the TNC and is ready. | Post-restart readiness check. |
+
+**Gotcha — false RING:** a `RING (BEL)` line without a matching `Incoming connect from <CALL>` within a second or two is almost always a false trigger. BEL characters embedded in another session's text stream (e.g. a remote PBBS welcome banner printed while the operator was outbound-connected to that PBBS) can trip the detector. Cross-check `w6oak_rf.log` at the same timestamp to confirm whether a real inbound call actually arrived.
 
 ---
 

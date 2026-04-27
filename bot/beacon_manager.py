@@ -14,8 +14,11 @@ Design:
 
 Knobs (from config.json):
     beacon_rotation_enabled : bool   default False
-    beacon_rotation_minutes : int    default 20   (match BEACON EVERY n)
-    beacon_api_ratio        : int    default 6    (1 in N uses Haiku)
+    beacon_rotation_minutes : int    default 60   (match BEACON EVERY n)
+    beacon_api_ratio        : int    default 2    (1 in N uses Haiku;
+                                                   60 min * 2 = ~1 call /
+                                                   2 hr, same as the old
+                                                   20 min / ratio 6 pairing)
     beacon_prefix           : str    default "W6OAK AI bot CM87. "
     beacon_max_len          : int    default 128
     beacon_pool_file        : str    default "BTEXT_POOL.md"
@@ -26,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import threading
 import time
 from typing import List, Optional
 
@@ -41,8 +45,8 @@ log = logging.getLogger('w6oak.beacon')
 DEFAULT_PREFIX      = "W6OAK AI bot CM87. "
 DEFAULT_MAX_LEN     = 128
 DEFAULT_POOL_FILE   = "BTEXT_POOL.md"
-DEFAULT_MINUTES     = 20
-DEFAULT_API_RATIO   = 6
+DEFAULT_MINUTES     = 60
+DEFAULT_API_RATIO   = 2
 HAIKU_MODEL         = "claude-haiku-4-5-20251001"
 
 # Fresh-line prompt. Keeps Haiku on-script so the output lands in budget
@@ -86,6 +90,15 @@ class BeaconManager:
         self._rotation_count = 0
         self._last_rotation = 0.0  # epoch seconds of last successful rotation
         self._recent_bodies: List[str] = []  # avoid repeating the last 5
+
+        # Body selection runs on a worker thread so a slow/stuck Haiku call
+        # can never block the bot's main loop (heartbeat, RF read, session
+        # handling). TNC writes stay on the main thread — only _select_body
+        # runs off-thread.
+        self._worker: Optional[threading.Thread] = None
+        self._pending_body: Optional[str] = None  # worker -> main handoff
+        self._worker_done: bool = False
+        self._pending_lock = threading.Lock()
 
         self._client = None
         if api_key and ANTHROPIC_AVAILABLE:
@@ -151,6 +164,7 @@ class BeaconManager:
                 max_tokens=120,
                 system=sys_prompt,
                 messages=[{"role": "user", "content": user_msg}],
+                timeout=10,
             )
             text = resp.content[0].text if resp.content else ""
         except Exception as e:
@@ -198,11 +212,35 @@ class BeaconManager:
     # ---------- main-loop hook ----------
 
     def maybe_rotate(self, busy: bool) -> None:
-        """Called each main-loop tick. No-op unless enabled and due."""
+        """Called each main-loop tick. Must not block — if body selection
+        needs Haiku, it runs on a worker thread; the TNC write happens on
+        the tick after the worker finishes."""
         if not self.enabled:
             return
         if busy:
             return  # never mid-QSO
+
+        # Commit any result the worker produced on a prior tick.
+        with self._pending_lock:
+            worker_done = self._worker_done
+            body_full = self._pending_body
+            if worker_done:
+                self._worker_done = False
+                self._pending_body = None
+        if worker_done:
+            if body_full is not None:
+                self._commit_rotation(body_full)
+            else:
+                # Worker had nothing (empty pool, Haiku down, or exception).
+                # Advance anyway so we don't hammer every tick.
+                log.info("Beacon rotation skipped (no body available).")
+                self._last_rotation = time.time()
+            return
+
+        # Worker still running? Wait — don't queue another.
+        if self._worker is not None and self._worker.is_alive():
+            return
+
         now = time.time()
         if self._last_rotation == 0.0:
             # Stagger first rotation slightly so bot start doesn't pile up
@@ -212,24 +250,42 @@ class BeaconManager:
         if now - self._last_rotation < self.rotation_seconds:
             return
 
-        body = self._pick_body()
-        if not body:
-            log.info("No beacon body available; skipping rotation.")
-            self._last_rotation = now
-            return
+        # Due. Kick off worker to pick (and possibly Haiku-generate) a body.
+        self._worker = threading.Thread(
+            target=self._select_body_worker,
+            name='beacon-select',
+            daemon=True,
+        )
+        self._worker.start()
 
-        full = self.prefix + body
-        if len(full) > self.max_len:
-            log.warning(f"rotated BTEXT over cap ({len(full)}>{self.max_len}); truncating")
-            full = full[: self.max_len]
+    def _select_body_worker(self) -> None:
+        """Run on worker thread. Never touches the TNC socket — only produces
+        a body string and hands it to the main thread via _pending_body."""
+        result: Optional[str] = None
+        try:
+            body = self._pick_body()
+            if body:
+                full = self.prefix + body
+                if len(full) > self.max_len:
+                    log.warning(f"rotated BTEXT over cap ({len(full)}>{self.max_len}); truncating")
+                    full = full[: self.max_len]
+                result = full
+        except Exception as e:
+            log.warning(f"beacon worker error: {e}")
+        finally:
+            with self._pending_lock:
+                self._pending_body = result
+                self._worker_done = True
 
+    def _commit_rotation(self, full: str) -> None:
+        """Run on main thread. TNC socket writes belong here."""
         ok = self._push_to_tnc(full)
+        now = time.time()
         if ok:
             self._rotation_count += 1
             self._last_rotation = now
             log.info(f"BTEXT rotated ({len(full)} chars): {full}")
         else:
-            # Don't lock us out forever. Wait one cycle before retrying.
             log.warning("BTEXT push failed; will retry next cycle.")
             self._last_rotation = now
 

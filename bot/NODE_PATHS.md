@@ -20,6 +20,41 @@ This file is intended to be read by the packet bot to help plan multi-hop connec
 
 ---
 
+## ⚠️ W6OAK Direct RF Reachability — READ FIRST
+
+**From W6OAK's antenna in East Oakland, only a small set of nodes are reachable by direct RF.** Every working path from W6OAK must begin with one of these direct neighbors as the first hop. Attempting to `CONNECT` any non-neighbor node directly from W6OAK will fail with `*** retry count exceeded` — the far end never hears us.
+
+### Direct neighbors from W6OAK (verified in use)
+
+| Node | Callsign | Type | Site |
+|---|---|---|---|
+| **WOODY** | N6ZX | KA-Node | Kings Mountain (Peninsula) |
+| **WBAY** | N6ZX-5 | K-Net | Kings Mountain (same site as WOODY) |
+| **MONTC** | K2YE-5 | K-Net | Oakland Hills / Mt. Umunhum ridge |
+| **KROCK** | K6FB | KA-Node | Castle Rock SP, Santa Cruz Mtns |
+| **ROCK** | K6FB-5 | K-Net | Castle Rock SP (same site as KROCK) |
+
+### NOT directly reachable from W6OAK (do not use as first hop)
+
+Confirmed unreachable from W6OAK by direct `CONNECT` — all returned `*** retry count exceeded` on 2026-04-20 around 12:39 PDT:
+
+`KBANN`, `KJOHN`, `JOHN`, `KHILL`, `HILL`, `SCLARA`, `HOGAN`, `KBULN`, `BULN`, `COOL`, `KRDG`, `RDG`, `HMKR`, `BANNER`, `BETHEL`, `KBERR`, `BERRY`, `KBETH`, `BUTANO`, `FCITY`, `ELSO`, `KELSO`, `AUBNOD`, `EDH`, `HERALD`, `VOLC`, `NITE`, `LPRC3`, `KLPRC3`, `SFRC`/`OFF`, `KPAC`/`PAC`, `SACBBS`, `SACCHT`, `SACNOD`, `PHXOR`, `MED`, `KC7HEX-1`.
+
+Most of these appear in our own `NODES` / `ROUTES` / `MHEARD` lists because they're advertised or digipeated, **but heard-through-a-relay ≠ two-way direct link**. A "locked" route at quality 192 with 0 uses is aspirational — manually configured, never actually carried a packet.
+
+### Implications for the bot
+
+- Any path from W6OAK **must** start with `c WOODY`, `c WBAY`, `c MONTC`, `c KROCK`, or `c ROCK`.
+- Reaching HILL/JOHN from W6OAK requires **`c WBAY` first**, then `c HILL` or `c JOHN` — never a direct `c HILL` from us.
+- Reaching KBANN/BANNER/KRDG/HMKR from W6OAK **must** go through WBAY or MONTC. Never attempt `c KBANN` from W6OAK directly — it will time out.
+- If an operator asks for a path, the bot should always begin the recipe with one of the five direct neighbors above. Older entries elsewhere in this document that begin `c HILL s` or `c KBANN` from W6OAK are **wrong as the first hop** and should be prefixed with a gateway connect.
+
+### Why this surprises people
+
+W6OAK's `ROUTES` table lists KF6ANX-4/-5 (JOHN/HILL) and KF6DQU-9 (BANNER) as quality-192 locked routes with 0 uses. That's a sysop-configured "we wish we could hear these" entry, not an observed RF path. Empirically, the only neighbors W6OAK has ever actually exchanged L2 frames with at useful reliability are N6ZX/-5 (WOODY/WBAY), K2YE-5 (MONTC), and K6FB/-5 (KROCK/ROCK).
+
+---
+
 ## Geographic Quick Reference (where nodes physically live)
 
 The 145.050 backbone spans California, Nevada, and Oregon. Below is the "which-node-is-where" view for the nodes most commonly named in W6OAK paths. Use this alongside the reachability tables when planning chains, the geometry often explains why a chain works or dies at a given hop.
@@ -96,8 +131,8 @@ Each row is a directed edge "from node A you can reach node B". Bidirectional ed
 
 | From | From Type | To | To Type | Via / Notes | Last Seen | Source |
 |---|---|---|---|---|---|---|
-| W6OAK (local) | Both | HILL / KHILL | Both | direct RF first hop from Bay Area users; K-Net alias `HILL`, KA alias `KHILL` | 2026-04-17 | msg 1158 + OAK NODES |
-| HILL / KHILL | Both | JOHN / KJOHN | Both | next hop in working NorCal→OR chain | 2026-04-17 | msg 1158 + OAK NODES |
+| W6OAK (local) | Both | HILL / KHILL | Both | **NOT direct from W6OAK** — reach via `c WBAY` first, then `c HILL` or `c JOHN`. See "Direct RF Reachability" section above. Original note applied to other Bay Area stations, not us. | 2026-04-17 | msg 1158 + OAK NODES |
+| HILL / KHILL | Both | JOHN / KJOHN | Both | next hop in working NorCal→OR chain (once you've already reached HILL via a gateway) | 2026-04-17 | msg 1158 + OAK NODES |
 | JOHN / KJOHN | Both | KBANN | KA | next hop; no K-Net equivalent advertised into OAK | 2026-04-17 | msg 1158 (N6ZOO) |
 | KBANN | KA | KRDG | KA | next hop (Redding) | 2026-04-17 | msg 1158, 1166 |
 | KRDG | KA | HMKR | KA | next hop (Mt. Hamaker / Oregon border) — **specify port 1** | 2026-04-17 | msg 1158 (N6ZOO) |
@@ -334,7 +369,7 @@ All at quality 192 (high). `!` marks locked/manual entries. Number after quality
 
 - **From W6OAK to South Bay BBS (SNY)**: `c SNY` — K-Net routes via WBAY → MONTC automatically, handles 145.050↔144.910 crossing.
 - **From W6OAK to ROCK's neighbor cloud (Central Calif. / Sierra)**: `c ROCK` (direct RF), then chain into ROCK's neighbors. ROCK sits at Castle Rock State Park in the Santa Cruz Mountains and is NOT a SoCal gateway, older notes that called it that were wrong.
-- **From W6OAK to Medford OR (KC7HEX-1)**: no K-Net shortcut — use the manual chain `c HILL / c JOHN / c KBANN / c KRDG / c HMKR / c 1 KC7HEX-1`. (HILL/JOHN are the K-Net entry, the rest of the chain is KA-Node.)
+- **From W6OAK to Medford OR (KC7HEX-1)**: no K-Net shortcut — and **HILL/JOHN are NOT direct from W6OAK**. Gateway first: `c WBAY`, then from WBAY do the manual chain `c HILL / c JOHN / c KBANN / c KRDG / c HMKR / c 1 KC7HEX-1`. (HILL/JOHN are the K-Net entry past WBAY, the rest of the chain is KA-Node.)
 - **Mixed-type edges**: once we leave KRDG heading north, we're KA-Node-only territory until we reach MED (which is K-Net at the Medford end).
 
 ---
@@ -801,6 +836,26 @@ Use `via K2YE-7` to reach 144.91 stations (like K6SNY-1 BBS) without first conne
 
 **Reference frame:** "here" means the Bay Area / MONTC footprint on 145.050. If the asker is somewhere else, the bot should ask where they're starting from before answering.
 
+---
+
+## ⚠️ W6OAK direct RF reachability — authoritative list
+
+Only five nodes are reachable from W6OAK by direct RF. Every path recipe below starts with one of these as the first hop:
+
+- **WOODY** (N6ZX, KA-Node, Kings Mountain)
+- **WBAY** (N6ZX-5, K-Net, Kings Mountain — same site as WOODY)
+- **MONTC** (K2YE-5, K-Net hub, Oakland Hills)
+- **KROCK** (K6FB, KA-Node, Castle Rock SP)
+- **ROCK** (K6FB-5, K-Net, Castle Rock SP — same site as KROCK)
+
+**NOT directly reachable from W6OAK** (confirmed 2026-04-20, all returned `*** retry count exceeded`): KBANN, KJOHN, JOHN, KHILL, HILL, SCLARA, HOGAN, KBULN, BULN, COOL, KRDG, RDG, HMKR, BANNER, BETHEL, KBERR, BERRY, KBETH, BUTANO, FCITY, ELSO, KELSO, AUBNOD, EDH, HERALD, VOLC, NITE, LPRC3, KLPRC3, SFRC / OFF, KPAC / PAC, SACBBS, SACCHT, SACNOD, PHXOR, MED, KC7HEX-1.
+
+These nodes appear in our `NODES` / `ROUTES` / `MHEARD` outputs because they're advertised or digipeated — heard-through-a-relay ≠ two-way direct link. Locked q192 routes with 0 uses are aspirational, not observed. Always prefix with `c WBAY`, `c WOODY`, `c MONTC`, `c ROCK`, or `c KROCK` as the first hop.
+
+**If an operator asks "what can I reach from here":** direct neighbors are WOODY, WBAY, MONTC, KROCK, ROCK — everything else needs a gateway.
+
+---
+
 **Status tags:**
 - `VERIFIED <date>` — someone confirmed this working on that date
 - `BACKBONE` — relied on daily, structurally stable
@@ -835,30 +890,34 @@ Known dual-service sites in the Bay Area and NorCal:
 - Use the **K-Net alias** (`c ROCK`, `c WOODY` if it's K-Net side, etc.) when you want NET/ROM to route further for you. K-Net nodes accept multi-hop destinations and handle the routing themselves.
 - Use the **KA-Node alias** (`c KROCK s`, `c WOODY s`) when you want to chain hops manually, digipeat UI frames, or park yourself at the node for a terminal-style session (PBBS messaging, JHEARD, converse).
 
-**W6OAK direct-RF neighbors (no digipeating needed):** WOODY, MONTC, BANNER, KROCK/ROCK. All confirmed quality ~192 on 2026-04-19.
+**W6OAK direct-RF neighbors (no digipeating needed):** WOODY, WBAY, MONTC, KROCK, ROCK. **BANNER is NOT directly reachable from W6OAK** despite appearing in our ROUTES at q192 (0 uses = aspirational, not observed). Direct `c KBANN` / `c BANNER` from W6OAK fails with retry-count-exceeded. Reach BANNER via `c WBAY` then `c BANNER`. See "W6OAK Direct RF Reachability" section at the top of this file.
 
 ---
 
 ## Destination: Oregon / Medford BBS (KC7HEX-1)
 
-**Primary (manual KA-Node chain, most reliable):**
+> ⚠️ From W6OAK, **none of `HILL`, `JOHN`, `KBANN`, `KRDG`, or `HMKR` are directly reachable**. Every recipe below must begin with `c WBAY` (or `c WOODY` / `c MONTC`) as the gateway from W6OAK before the chain starts. The chains originally published on groups.io assume the operator is already one hop into the network.
+
+**Primary (gateway via WBAY, then manual KA-Node chain):**
 ```
-c HILL s
+c WBAY           # gateway hop from W6OAK (direct RF, q192)
+c HILL s         # issued from WBAY
 c JOHN s
 c KBANN s
 c KRDG s
 c HMKR s
 c 1 KC7HEX-1
 ```
-VERIFIED 2026-04-17 via groups.io msg 1158 (N6ZOO).
+Chain past WBAY VERIFIED 2026-04-17 via groups.io msg 1158 (N6ZOO). W6OAK→WBAY gateway verified as the working starting hop.
 
-**Shortcut (two-hop NET/ROM into KRDG, then KA the rest):**
+**Shortcut (gateway via WBAY, then NET/ROM to KRDG, then KA the rest):**
 ```
-c KBANN
+c WBAY           # gateway hop from W6OAK
+c KBANN          # issued from WBAY (WBAY hears KBANN directly per its MHeard)
 c KRDG
 c 1 KC7HEX-1
 ```
-VERIFIED 2026-04-17 via msg 1166 (KO6TH).
+WBAY→KBANN→KRDG→KC7HEX-1 VERIFIED 2026-04-17 via msg 1166 (KO6TH). Gateway prefix `c WBAY` added because the source message assumed an operator already on the network, not originating at W6OAK.
 
 **All-K-Net attempt (cleaner but less reliable):**
 ```
@@ -883,9 +942,10 @@ c RDG         # WBAY advertises RDG:KE6CHO-5
 ```
 VERIFIED 2026-04-17 via WBAY NODES capture.
 
-**Fallback (manual KA-Node chain):**
+**Fallback (gateway via WBAY, then manual KA-Node chain):**
 ```
-c HILL s
+c WBAY           # gateway hop from W6OAK (direct RF, q192)
+c HILL s         # issued from WBAY
 c JOHN s
 c KBANN s
 c KRDG
@@ -894,6 +954,7 @@ c KRDG
 **Notes:**
 - RDG (K-Net) and KRDG (KA-Node) are the same Redding site, different services.
 - From Redding the PBBS is KE6CHO-5.
+- Do **not** attempt `c HILL s` directly from W6OAK — not an RF neighbor.
 
 ---
 
@@ -901,9 +962,10 @@ c KRDG
 
 **Status:** FLAKY to BROKEN. Per KJ6WEG (msg 1155) and KO6TH (msg 1153), "can't seem to get past Redding."
 
-**Best effort:**
+**Best effort (gateway via WBAY first, since W6OAK cannot reach HILL directly):**
 ```
-c HILL s
+c WBAY           # gateway hop from W6OAK (direct RF, q192)
+c HILL s         # issued from WBAY
 c JOHN s
 c KBANN s
 c KRDG s
@@ -1063,7 +1125,8 @@ Only verified as a WBAY NODES entry, not probed end-to-end.
 
 **ELSO (WA6KQB-5, El Sobrante) — backbone:**
 ```
-c ELSO         # K-Net from OAK if in range, else c WBAY / c ELSO
+c WBAY         # gateway hop from W6OAK (ELSO is NOT directly reachable from us)
+c ELSO         # issued from WBAY
 ```
 
 ---

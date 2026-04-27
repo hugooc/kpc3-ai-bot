@@ -19,7 +19,7 @@ MALL OFF
 MYCALL W6OAK
 UNPROTO CQ VIA WOODY,KBERR,KJOHN,KBETH,KBERR,KLPRC3
 BTEXT Sunday Packet Net 8:00pm NC Hugo, W6OAK hears WOODY and KLPRC3
-BEACON EVERY 20
+BEACON EVERY 60
 ```
 
 What each line does:
@@ -28,7 +28,7 @@ What each line does:
 - `MYCALL W6OAK` — sanity check, rarely changes.
 - `UNPROTO ...` — sets destination + digi chain for all UI/beacon/ID frames. See "The echo-test path" below for why the chain loops back on itself.
 - `BTEXT ...` — the beacon content. Update between rounds as you log check-ins.
-- `BEACON EVERY 20` — beacon every 20 minutes. Fine for a pre-net beacon. Turn this OFF (`BEACON EVERY 0`) once the net starts so your beacon doesn't step on check-ins.
+- `BEACON EVERY 60` — beacon every 60 minutes (steady-state default since 2026-04-21). Fine for a pre-net beacon. Turn this OFF (`BEACON EVERY 0`) once the net starts so your beacon doesn't step on check-ins.
 
 To disable unproto/beacon entirely between nets: `UNPROTO NONE`, `BEACON EVERY 0`.
 
@@ -151,7 +151,7 @@ CONVERS
 That's the close of tonight's Sunday Packet Net. Thanks to all check-ins.
 Next net same time next Sunday. 73 de W6OAK.
 (Ctrl+C)
-BEACON EVERY 20
+BEACON EVERY 60
 UNPROTO CQ VIA N6ZX-5,K6FB-5
 BTEXT W6OAK AI node CM87. C W6OAK to chat w/ the bot. Ask about routes. 73!
 ```

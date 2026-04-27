@@ -47,7 +47,7 @@ These are the specific protections in place:
 
 ## Beacon policy
 
-- `BEACON EVERY 20` — three beacons per hour, discoverable without being a nuisance.
+- `BEACON EVERY 60` — one beacon per hour, discoverable without being a nuisance.
 - BTEXT under 40 characters so multi-hop digi chains don't flood the network.
 - Content required to include "AI" or "bot" so passing ops know what they'd be connecting to.
 

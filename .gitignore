@@ -1,7 +1,22 @@
-# Private folder — secrets, keys, logs, drafts. Never committed.
-private/
+# Two-repo layout (set up 2026-04-27):
+#
+#   - This (root) repo pushes to github.com/<you>/<your-private-mirror> —
+#     the canonical, unredacted source of truth. Includes private/
+#     contents (DEPLOYMENT_INVENTORY.md, DASHBOARD_INVENTORY.md, etc.).
+#
+#   - public/ has its own .git pushing to github.com/you/kpc3-ai-bot —
+#     the sanitized, public-safe subset. sync_public.sh runs sed-based
+#     redactions when copying selected files from root into public/.
+#
+# Files matching the patterns below are excluded from the private repo
+# entirely. Secrets must never reach ANY cloud, even the private one.
 
-# Secrets and credentials (belt-and-suspenders — in case they're outside private/)
+# public/ has its own git. Not tracked from this repo.
+public/
+
+# Secrets and credentials — never to any remote, even the private repo.
+# (No leading slash — these patterns match anywhere in the tree, including
+# private/config.json and private/kpc3_ssh_key.)
 config.json
 *.key
 *_key
@@ -9,6 +24,9 @@ config.json
 kpc3_ssh_key*
 .env
 .env.*
+
+# Claude Code: per-agent ephemeral worktrees. settings.local.json IS tracked.
+.claude/worktrees/
 
 # Logs
 *.log
